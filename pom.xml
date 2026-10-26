@@ -168,7 +168,7 @@
 				<configuration>
 					<excludes>
 						<exclude>**/config/**</exclude>
-						<exclude>**/MsOfisyExecutionApplication.class</exclude>
+						<exclude>**/MsOfisyBillingApplication.class</exclude>
 					</excludes>
 				</configuration>
 				<executions>
