@@ -1,0 +1,11 @@
+spring:
+  config:
+    activate:
+      on-profile: docker
+  datasource:
+    url: jdbc:postgresql://postgres:5432/ms_ofisy_billing_db
+  flyway:
+    enabled: true
+  jpa:
+    hibernate:
+      ddl-auto: validate
