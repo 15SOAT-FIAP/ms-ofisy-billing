@@ -4,6 +4,7 @@ import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.QuoteNotFoundE
 import br.com.ofisy.ms_ofisy_billing.domain.quote.Quote;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.QuoteRepository;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.QuoteServiceItem;
+import br.com.ofisy.ms_ofisy_billing.domain.quote.exceptions.InvalidQuoteStatusException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -55,5 +56,16 @@ class ApproveQuoteServiceTest {
         when(quoteRepository.findById(quoteId)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.execute(quoteId)).isInstanceOf(QuoteNotFoundException.class);
+    }
+
+    @Test
+    void shouldNotApproveAQuoteThatIsNotPending() {
+        UUID quoteId = UUID.randomUUID();
+        Quote quote = Quote.create(UUID.randomUUID(), List.of(), List.of(QuoteServiceItem.create(UUID.randomUUID(), BigDecimal.TEN)));
+        quote.reprove("Preço alto");
+        when(quoteRepository.findById(quoteId)).thenReturn(Optional.of(quote));
+
+        assertThatThrownBy(() -> service.execute(quoteId)).isInstanceOf(InvalidQuoteStatusException.class);
+        verify(quoteRepository, never()).save(any());
     }
 }
