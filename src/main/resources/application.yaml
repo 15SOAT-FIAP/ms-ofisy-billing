@@ -19,10 +19,6 @@ spring:
       file: compose.db.yaml
   config:
     import: optional:file:.env[.properties]
-  cloud:
-    aws:
-      region:
-        static: us-east-1
 logging:
   level:
     org.flywaydb: DEBUG
