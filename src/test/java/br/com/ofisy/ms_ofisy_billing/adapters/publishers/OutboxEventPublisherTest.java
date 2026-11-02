@@ -52,20 +52,6 @@ class OutboxEventPublisherTest {
         publisher = new OutboxEventPublisher(outboxEventRepository, snsOperations, jsonMapper, TOPIC_NAME, BATCH_SIZE);
     }
 
-    private OutboxEventEntity pendingEvent(Instant occurredAt) {
-        return pendingEvent(UUID.randomUUID(), occurredAt);
-    }
-
-    private OutboxEventEntity pendingEvent(UUID serviceOrderId, Instant occurredAt) {
-        return OutboxEventEntity.builder()
-                .eventId(UUID.randomUUID())
-                .eventType("QuoteCreated")
-                .serviceOrderId(serviceOrderId)
-                .payload("{\"quoteId\":\"%s\"}".formatted(UUID.randomUUID()))
-                .occurredAt(occurredAt)
-                .build();
-    }
-
     @Test
     void shouldPublishPendingEventsInOrderAsFifoEnvelopes() {
         OutboxEventEntity first = pendingEvent(Instant.parse("2026-10-16T10:00:00Z"));
@@ -138,5 +124,19 @@ class OutboxEventPublisherTest {
                 event.getServiceOrderId(),
                 event.getOccurredAt(),
                 jsonMapper.readTree(event.getPayload())));
+    }
+
+    private OutboxEventEntity pendingEvent(Instant occurredAt) {
+        return pendingEvent(UUID.randomUUID(), occurredAt);
+    }
+
+    private OutboxEventEntity pendingEvent(UUID serviceOrderId, Instant occurredAt) {
+        return OutboxEventEntity.builder()
+                .eventId(UUID.randomUUID())
+                .eventType("QuoteCreated")
+                .serviceOrderId(serviceOrderId)
+                .payload("{\"quoteId\":\"%s\"}".formatted(UUID.randomUUID()))
+                .occurredAt(occurredAt)
+                .build();
     }
 }
