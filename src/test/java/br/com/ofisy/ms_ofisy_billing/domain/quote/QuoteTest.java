@@ -13,14 +13,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class QuoteTest {
 
-    private QuoteStockItem stockItem() {
-        return QuoteStockItem.create(UUID.randomUUID(), new BigDecimal("50.00"), 2);
-    }
-
-    private QuoteServiceItem serviceItem() {
-        return QuoteServiceItem.create(UUID.randomUUID(), new BigDecimal("100.00"));
-    }
-
     @Test
     void shouldCreateQuoteWithPendingStatusAndCalculatedTotal() {
         Quote quote = Quote.create(UUID.randomUUID(), List.of(stockItem()), List.of(serviceItem()));
@@ -346,5 +338,13 @@ class QuoteTest {
         assertThat(quote.getStockItems()).containsExactly(stock);
         assertThat(quote.getServiceItems()).containsExactly(service);
         assertThat(quote.getQuoteRefusalReason()).isEqualTo("Preço alto");
+    }
+
+    private QuoteStockItem stockItem() {
+        return QuoteStockItem.create(UUID.randomUUID(), new BigDecimal("50.00"), 2);
+    }
+
+    private QuoteServiceItem serviceItem() {
+        return QuoteServiceItem.create(UUID.randomUUID(), new BigDecimal("100.00"));
     }
 }
