@@ -34,12 +34,6 @@ class QuoteRepositoryImplTest {
         repository = new QuoteRepositoryImpl(jpaQuoteRepository);
     }
 
-    private Quote newQuote(UUID serviceOrderId) {
-        return Quote.create(serviceOrderId,
-                List.of(QuoteStockItem.create(UUID.randomUUID(), new BigDecimal("20.00"), 2)),
-                List.of(QuoteServiceItem.create(UUID.randomUUID(), new BigDecimal("60.00"))));
-    }
-
     @Test
     void shouldMapTheQuoteToAnEntityAndBackWhenSaving() {
         UUID serviceOrderId = UUID.randomUUID();
@@ -107,5 +101,11 @@ class QuoteRepositoryImplTest {
 
         assertThat(repository.existsByServiceOrderId(existing)).isTrue();
         assertThat(repository.existsByServiceOrderId(missing)).isFalse();
+    }
+
+    private Quote newQuote(UUID serviceOrderId) {
+        return Quote.create(serviceOrderId,
+                List.of(QuoteStockItem.create(UUID.randomUUID(), new BigDecimal("20.00"), 2)),
+                List.of(QuoteServiceItem.create(UUID.randomUUID(), new BigDecimal("60.00"))));
     }
 }
