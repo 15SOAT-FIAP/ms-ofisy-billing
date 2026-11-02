@@ -204,6 +204,7 @@ class UpdateQuoteServiceTest {
     void shouldNotUpdateAQuoteThatIsNoLongerPending() {
         UUID quoteId = UUID.randomUUID();
         Quote approved = pendingQuoteWithOneStockItem();
+        approved.sendForApproval();
         approved.approve();
         when(quoteRepository.findById(quoteId)).thenReturn(Optional.of(approved));
 
