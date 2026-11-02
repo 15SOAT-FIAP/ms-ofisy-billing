@@ -51,20 +51,6 @@ class CreatePaymentServiceTest {
         service = new CreatePaymentService(quoteRepository, paymentRepository, processedEventRepository);
     }
 
-    private CreatePaymentCommand command() {
-        return new CreatePaymentCommand(eventId, "ServiceOrderFinished", serviceOrderId);
-    }
-
-    private Quote quote(QuoteStatus status) {
-        return Quote.reconstruct(quoteId, serviceOrderId, status, new BigDecimal("250.00"), null,
-                List.of(), List.of(), null, null);
-    }
-
-    private Payment paymentWithStatus(PaymentStatus status) {
-        return Payment.reconstruct(UUID.randomUUID(), serviceOrderId, quoteId, new BigDecimal("250.00"), status,
-                null, null, null, null);
-    }
-
     @Test
     void shouldCreateAPendingPaymentWithTheTotalOfTheApprovedQuote() {
         when(quoteRepository.findByServiceOrderId(serviceOrderId)).thenReturn(List.of(quote(QuoteStatus.APPROVED)));
@@ -138,5 +124,19 @@ class CreatePaymentServiceTest {
 
         verifyNoInteractions(paymentRepository);
         verify(processedEventRepository, never()).save(any());
+    }
+
+    private CreatePaymentCommand command() {
+        return new CreatePaymentCommand(eventId, "ServiceOrderFinished", serviceOrderId);
+    }
+
+    private Quote quote(QuoteStatus status) {
+        return Quote.reconstruct(quoteId, serviceOrderId, status, new BigDecimal("250.00"), null,
+                List.of(), List.of(), null, null);
+    }
+
+    private Payment paymentWithStatus(PaymentStatus status) {
+        return Payment.reconstruct(UUID.randomUUID(), serviceOrderId, quoteId, new BigDecimal("250.00"), status,
+                null, null, null, null);
     }
 }

@@ -35,6 +35,9 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class CancelQuoteServiceTest {
 
+    private final UUID eventId = UUID.randomUUID();
+    private final UUID serviceOrderId = UUID.randomUUID();
+
     @Mock
     private QuoteRepository quoteRepository;
     @Mock
@@ -44,24 +47,9 @@ class CancelQuoteServiceTest {
 
     private CancelQuoteService service;
 
-    private final UUID eventId = UUID.randomUUID();
-    private final UUID serviceOrderId = UUID.randomUUID();
-
     @BeforeEach
     void setUp() {
         service = new CancelQuoteService(quoteRepository, processedEventRepository, outboxEventRepository);
-    }
-
-    private CancelQuoteCommand command(String type, CancellationReason reason) {
-        return new CancelQuoteCommand(eventId, type, serviceOrderId, reason);
-    }
-
-    private Quote pendingQuote() {
-        return Quote.create(serviceOrderId, List.of(QuoteStockItem.create(UUID.randomUUID(), BigDecimal.TEN, 1)), List.of());
-    }
-
-    private Quote serviceOnlyQuote() {
-        return Quote.create(serviceOrderId, List.of(), List.of(QuoteServiceItem.create(UUID.randomUUID(), BigDecimal.TEN)));
     }
 
     @Test
@@ -133,5 +121,17 @@ class CancelQuoteServiceTest {
 
         verifyNoInteractions(outboxEventRepository);
         verify(processedEventRepository, never()).save(any());
+    }
+
+    private CancelQuoteCommand command(String type, CancellationReason reason) {
+        return new CancelQuoteCommand(eventId, type, serviceOrderId, reason);
+    }
+
+    private Quote pendingQuote() {
+        return Quote.create(serviceOrderId, List.of(QuoteStockItem.create(UUID.randomUUID(), BigDecimal.TEN, 1)), List.of());
+    }
+
+    private Quote serviceOnlyQuote() {
+        return Quote.create(serviceOrderId, List.of(), List.of(QuoteServiceItem.create(UUID.randomUUID(), BigDecimal.TEN)));
     }
 }

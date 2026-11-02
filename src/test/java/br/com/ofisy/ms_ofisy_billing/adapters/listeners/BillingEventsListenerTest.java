@@ -16,16 +16,6 @@ import static org.mockito.Mockito.when;
 
 class BillingEventsListenerTest {
 
-    private EventEnvelope envelope(String type) {
-        return new EventEnvelope(UUID.randomUUID(), type, UUID.randomUUID(), Instant.now(), null);
-    }
-
-    private EventHandler handlerFor(String type) {
-        EventHandler handler = mock(EventHandler.class);
-        when(handler.type()).thenReturn(type);
-        return handler;
-    }
-
     @Test
     void shouldDispatchTheEventToTheHandlerOfItsType() {
         EventHandler stockConsumed = handlerFor("StockConsumed");
@@ -67,5 +57,15 @@ class BillingEventsListenerTest {
 
         assertThatThrownBy(() -> new BillingEventsListener(handlers)).isInstanceOf(IllegalStateException.class);
         assertThat(handlers).hasSize(2);
+    }
+
+    private EventEnvelope envelope(String type) {
+        return new EventEnvelope(UUID.randomUUID(), type, UUID.randomUUID(), Instant.now(), null);
+    }
+
+    private EventHandler handlerFor(String type) {
+        EventHandler handler = mock(EventHandler.class);
+        when(handler.type()).thenReturn(type);
+        return handler;
     }
 }

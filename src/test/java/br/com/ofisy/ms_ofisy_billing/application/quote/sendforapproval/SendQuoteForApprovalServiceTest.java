@@ -51,14 +51,6 @@ class SendQuoteForApprovalServiceTest {
         service = new SendQuoteForApprovalService(quoteRepository, processedEventRepository, outboxEventRepository);
     }
 
-    private SendQuoteForApprovalCommand command() {
-        return new SendQuoteForApprovalCommand(eventId, "StockConsumed", serviceOrderId);
-    }
-
-    private Quote pendingQuote() {
-        return Quote.create(serviceOrderId, List.of(QuoteStockItem.create(UUID.randomUUID(), BigDecimal.TEN, 1)), List.of());
-    }
-
     @Test
     void shouldMovePendingQuoteToAwaitingApprovalAndPublishQuoteSentForApproval() {
         Quote quote = pendingQuote();
@@ -112,5 +104,13 @@ class SendQuoteForApprovalServiceTest {
 
         verifyNoInteractions(outboxEventRepository);
         verify(processedEventRepository, never()).save(any());
+    }
+
+    private SendQuoteForApprovalCommand command() {
+        return new SendQuoteForApprovalCommand(eventId, "StockConsumed", serviceOrderId);
+    }
+
+    private Quote pendingQuote() {
+        return Quote.create(serviceOrderId, List.of(QuoteStockItem.create(UUID.randomUUID(), BigDecimal.TEN, 1)), List.of());
     }
 }

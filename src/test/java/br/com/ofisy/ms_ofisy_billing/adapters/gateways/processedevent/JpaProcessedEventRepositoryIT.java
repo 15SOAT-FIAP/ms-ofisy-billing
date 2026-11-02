@@ -15,14 +15,6 @@ class JpaProcessedEventRepositoryIT extends PostgresIntegrationTest {
     @Autowired
     private JpaProcessedEventRepository jpa;
 
-    private ProcessedEventEntity entity(UUID eventId) {
-        return ProcessedEventEntity.builder()
-                .eventId(eventId)
-                .eventType("StockConsumed")
-                .processedAt(LocalDateTime.now())
-                .build();
-    }
-
     @Test
     void shouldPersistAndFindTheProcessedEvent() {
         UUID eventId = UUID.randomUUID();
@@ -39,5 +31,13 @@ class JpaProcessedEventRepositoryIT extends PostgresIntegrationTest {
         jpa.saveAndFlush(entity(eventId));
 
         assertThrows(Exception.class, () -> jpa.saveAndFlush(entity(eventId)));
+    }
+
+    private ProcessedEventEntity entity(UUID eventId) {
+        return ProcessedEventEntity.builder()
+                .eventId(eventId)
+                .eventType("StockConsumed")
+                .processedAt(LocalDateTime.now())
+                .build();
     }
 }
