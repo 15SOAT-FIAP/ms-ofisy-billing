@@ -116,6 +116,7 @@ class CreateQuoteServiceTest {
         assertThat(quote.getServiceItems()).hasSize(1);
         assertThat(quote.getServiceItems().get(0).getPrice()).isEqualByComparingTo("80.00");
         assertThat(quote.getTotalPrice()).isEqualByComparingTo("80.00");
+        assertThat(quote.getStatus().name()).isEqualTo("AWAITING_APPROVAL");
     }
 
     @Test

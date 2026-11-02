@@ -19,6 +19,8 @@ public class Quote {
     public static final String ACTION_APPROVE = "aprovar";
     public static final String ACTION_REPROVE = "reprovar";
     public static final String ACTION_EDIT = "editar";
+    public static final String ACTION_SEND_FOR_APPROVAL = "enviar para aprovação";
+    public static final String ACTION_CANCEL = "cancelar";
 
     private UUID id;
     private UUID serviceOrderId;
@@ -35,7 +37,6 @@ public class Quote {
                                 List<QuoteServiceItem> serviceItems) {
         Quote quote = new Quote();
         quote.serviceOrderId = serviceOrderId;
-        quote.status = QuoteStatus.PENDING;
         quote.stockItems = stockItems != null ? stockItems : new ArrayList<>();
         quote.serviceItems = serviceItems != null ? serviceItems : new ArrayList<>();
 
@@ -43,6 +44,8 @@ public class Quote {
             throw new InvalidQuoteDataException(serviceOrderId);
         }
 
+        // Sem itens de estoque não há baixa a aguardar: o orçamento já nasce pronto para aprovação
+        quote.status = quote.requiresStockConsumption() ? QuoteStatus.PENDING : QuoteStatus.AWAITING_APPROVAL;
         quote.totalPrice = calculateTotal(quote.stockItems, quote.serviceItems);
         quote.createdAt = LocalDateTime.now();
         quote.updatedAt = LocalDateTime.now();
@@ -73,8 +76,41 @@ public class Quote {
         return quote;
     }
 
-    public void approve() {
+    public boolean requiresStockConsumption() {
+        return !stockItems.isEmpty();
+    }
+
+    /** Estoque consumido (StockConsumed): o orçamento segue para a decisão do cliente. */
+    public void sendForApproval() {
         if (!QuoteStatus.PENDING.equals(this.status)) {
+            throw new InvalidQuoteStatusException(ACTION_SEND_FOR_APPROVAL, this.status);
+        }
+        this.status = QuoteStatus.AWAITING_APPROVAL;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public boolean isApproved() {
+        return QuoteStatus.APPROVED.equals(this.status);
+    }
+
+    /** REPROVED e CANCELLED são finais: não há mais o que compensar nesses orçamentos. */
+    public boolean isCancellable() {
+        return QuoteStatus.PENDING.equals(this.status)
+                || QuoteStatus.AWAITING_APPROVAL.equals(this.status)
+                || QuoteStatus.APPROVED.equals(this.status);
+    }
+
+    /** Compensação da saga: falta de estoque (PENDING) ou OS cancelada depois do orçamento. */
+    public void cancel() {
+        if (!isCancellable()) {
+            throw new InvalidQuoteStatusException(ACTION_CANCEL, this.status);
+        }
+        this.status = QuoteStatus.CANCELLED;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void approve() {
+        if (!QuoteStatus.AWAITING_APPROVAL.equals(this.status)) {
             throw new InvalidQuoteStatusException(ACTION_APPROVE, this.status);
         }
         this.status = QuoteStatus.APPROVED;
@@ -82,7 +118,7 @@ public class Quote {
     }
 
     public void reprove(String reason) {
-        if (!QuoteStatus.PENDING.equals(this.status)) {
+        if (!QuoteStatus.AWAITING_APPROVAL.equals(this.status)) {
             throw new InvalidQuoteStatusException(ACTION_REPROVE, this.status);
         }
         this.status = QuoteStatus.REPROVED;
