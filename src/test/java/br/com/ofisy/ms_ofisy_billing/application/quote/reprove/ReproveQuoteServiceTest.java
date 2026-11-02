@@ -1,10 +1,14 @@
 package br.com.ofisy.ms_ofisy_billing.application.quote.reprove;
 
 import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.QuoteNotFoundException;
+import br.com.ofisy.ms_ofisy_billing.domain.outbox.OutboxEvent;
+import br.com.ofisy.ms_ofisy_billing.domain.outbox.OutboxEventRepository;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.Quote;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.QuoteRepository;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.QuoteStockItem;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.exceptions.InvalidQuoteStatusException;
+
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -17,6 +21,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import static br.com.ofisy.ms_ofisy_billing.support.OutboxEventPayloads.payloadOf;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -27,12 +32,14 @@ class ReproveQuoteServiceTest {
 
     @Mock
     private QuoteRepository quoteRepository;
+    @Mock
+    private OutboxEventRepository outboxEventRepository;
 
     private ReproveQuoteService service;
 
     @BeforeEach
     void setUp() {
-        service = new ReproveQuoteService(quoteRepository);
+        service = new ReproveQuoteService(quoteRepository, outboxEventRepository);
     }
 
     @Test
@@ -50,6 +57,14 @@ class ReproveQuoteServiceTest {
 
         assertThat(result.getStatus().name()).isEqualTo("REPROVED");
         assertThat(result.getQuoteRefusalReason()).isEqualTo("Preço acima do esperado");
+
+        ArgumentCaptor<OutboxEvent> captor = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outboxEventRepository).save(captor.capture());
+        assertThat(captor.getValue().getEventType()).isEqualTo("QuoteReproved");
+        assertThat(payloadOf(captor.getValue()))
+                .contains("\"reason\":\"Preço acima do esperado\"")
+                .contains("\"stockId\":\"" + stockId + "\"")
+                .contains("\"quantity\":5");
     }
 
     @Test

@@ -1,4 +1,20 @@
 services:
+  localstack:
+    image: localstack/localstack:4.13.1
+    container_name: ms-ofisy-billing-localstack
+    environment:
+      SERVICES: sns,sqs
+      AWS_DEFAULT_REGION: us-east-1
+    ports:
+      - "4566:4566"
+    volumes:
+      - "./localstack/init/ready.d:/etc/localstack/init/ready.d"
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -s localhost:4566/_localstack/init/ready | grep -q '\"completed\": true'" ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   postgres:
     image: postgres:16
     container_name: ms-ofisy-billing-db
@@ -22,12 +38,16 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      localstack:
+        condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: docker
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
       SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+      CORE_BASE_URL: ${CORE_BASE_URL}
+      CORE_SERVICE_TOKEN: ${CORE_SERVICE_TOKEN}
     ports:
       - "8082:8080"
 
