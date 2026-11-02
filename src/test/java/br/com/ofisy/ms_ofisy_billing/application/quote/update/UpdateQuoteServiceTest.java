@@ -79,11 +79,6 @@ class UpdateQuoteServiceTest {
         assertThatThrownBy(() -> service.execute(cmd)).isInstanceOf(InvalidQuoteItemException.class);
     }
 
-    private Quote pendingQuoteWithOneStockItem() {
-        return Quote.create(UUID.randomUUID(),
-                List.of(QuoteStockItem.create(UUID.randomUUID(), BigDecimal.TEN, 1)), List.of());
-    }
-
     @Test
     void shouldUpdateServiceItemsUsingThePriceFromTheCatalog() {
         UUID quoteId = UUID.randomUUID();
@@ -215,5 +210,10 @@ class UpdateQuoteServiceTest {
 
         assertThatThrownBy(() -> service.execute(cmd)).isInstanceOf(InvalidQuoteStatusException.class);
         verify(quoteRepository, never()).save(any());
+    }
+
+    private Quote pendingQuoteWithOneStockItem() {
+        return Quote.create(UUID.randomUUID(),
+                List.of(QuoteStockItem.create(UUID.randomUUID(), BigDecimal.TEN, 1)), List.of());
     }
 }
