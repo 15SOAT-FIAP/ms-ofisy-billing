@@ -23,7 +23,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - "5434:5432"
+      - "5435:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -49,7 +49,7 @@ services:
       CORE_BASE_URL: ${CORE_BASE_URL}
       CORE_SERVICE_TOKEN: ${CORE_SERVICE_TOKEN}
     ports:
-      - "8082:8080"
+      - "8083:8080"
 
 volumes:
   postgres_data:
