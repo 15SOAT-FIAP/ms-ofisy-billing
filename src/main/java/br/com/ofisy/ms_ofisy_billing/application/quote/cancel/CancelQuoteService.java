@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 
 @Slf4j
 @Service
@@ -33,9 +34,17 @@ public class CancelQuoteService implements CancelQuoteUseCase {
             return;
         }
 
-        Quote quote = quoteRepository.findByServiceOrderId(cmd.serviceOrderId()).stream()
-                .findFirst()
-                .orElseThrow(() -> QuoteNotFoundException.forServiceOrder(cmd.serviceOrderId()));
+        Optional<Quote> found = quoteRepository.findByServiceOrderId(cmd.serviceOrderId()).stream().findFirst();
+        if (found.isEmpty()) {
+            if (CancellationReason.SERVICE_ORDER_CANCELLED.equals(cmd.reason())) {
+                log.info("CancelQuoteService.execute >> service order {} has no quote, nothing to cancel for event {}",
+                        cmd.serviceOrderId(), cmd.eventId());
+                processedEventRepository.save(ProcessedEvent.create(cmd.eventId(), cmd.eventType()));
+                return;
+            }
+            throw QuoteNotFoundException.forServiceOrder(cmd.serviceOrderId());
+        }
+        Quote quote = found.get();
 
         if (quote.isCancellable()) {
             quote.cancel();
