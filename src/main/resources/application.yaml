@@ -23,8 +23,12 @@ spring:
     aws:
       region:
         static: us-east-1
+      sqs:
+        queue-not-found-strategy: fail
 ofisy:
   messaging:
+    queues:
+      billing: ofisy-billing.fifo
     topics:
       billing: ofisy-billing-events.fifo
     outbox:
