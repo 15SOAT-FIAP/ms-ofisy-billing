@@ -33,7 +33,7 @@ class FindQuoteByServiceOrderIdServiceTest {
     void shouldReturnTheQuotesOfTheServiceOrder() {
         UUID serviceOrderId = UUID.randomUUID();
         Quote quote = Quote.create(serviceOrderId,
-                List.of(QuoteStockItem.create(UUID.randomUUID(), BigDecimal.TEN, 1)), List.of());
+                List.of(QuoteStockItem.create(UUID.randomUUID(), "Filtro de óleo", BigDecimal.TEN, 1)), List.of());
         when(quoteRepository.findByServiceOrderId(serviceOrderId)).thenReturn(List.of(quote));
 
         List<Quote> result = service.execute(serviceOrderId);

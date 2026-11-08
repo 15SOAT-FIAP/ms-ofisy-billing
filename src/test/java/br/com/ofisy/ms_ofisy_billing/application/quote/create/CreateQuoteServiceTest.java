@@ -1,16 +1,18 @@
 package br.com.ofisy.ms_ofisy_billing.application.quote.create;
 
 import br.com.ofisy.ms_ofisy_billing.application.ports.ServiceCatalogClient;
+import br.com.ofisy.ms_ofisy_billing.application.ports.StockClient;
 import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.QuoteAlreadyExistsException;
 import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.QuoteItemAlreadyExistsException;
 import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.ServiceCatalogNotFoundException;
+import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.StockNotFoundException;
+import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.StockUnavailableException;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.Quote;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.QuoteRepository;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.exceptions.InvalidQuoteDataException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -31,32 +33,40 @@ class CreateQuoteServiceTest {
     private QuoteRepository quoteRepository;
     @Mock
     private ServiceCatalogClient serviceCatalogClient;
+    @Mock
+    private StockClient stockClient;
 
     private CreateQuoteService service;
 
     @BeforeEach
     void setUp() {
-        service = new CreateQuoteService(quoteRepository, serviceCatalogClient);
+        service = new CreateQuoteService(quoteRepository, serviceCatalogClient, stockClient);
     }
 
     @Test
     void shouldCreateQuoteGenerated() {
         UUID serviceOrderId = UUID.randomUUID();
         UUID serviceCatalogId = UUID.randomUUID();
+        UUID stockId = UUID.randomUUID();
 
         when(quoteRepository.existsByServiceOrderId(serviceOrderId)).thenReturn(false);
         when(serviceCatalogClient.findById(serviceCatalogId))
                 .thenReturn(Optional.of(new ServiceCatalogClient.ServiceCatalogView(serviceCatalogId, "Troca de óleo", new BigDecimal("120.00"))));
+        stubStock(stockId, "Filtro de óleo", "30.00");
         when(quoteRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         var cmd = new CreateQuoteUseCase.CreateQuoteCommand(
                 serviceOrderId,
-                List.of(new CreateQuoteUseCase.StockItemCommand(UUID.randomUUID(), new BigDecimal("30.00"), 1)),
+                List.of(new CreateQuoteUseCase.StockItemCommand(stockId, 1)),
                 List.of(new CreateQuoteUseCase.ServiceItemCommand(serviceCatalogId)));
 
         Quote quote = service.execute(cmd);
 
         assertThat(quote.getTotalPrice()).isEqualByComparingTo("150.00");
+        assertThat(quote.getStockItems()).singleElement().satisfies(item -> {
+            assertThat(item.getProductName()).isEqualTo("Filtro de óleo");
+            assertThat(item.getUnitPrice()).isEqualByComparingTo("30.00");
+        });
     }
 
     @Test
@@ -87,15 +97,47 @@ class CreateQuoteServiceTest {
         UUID serviceOrderId = UUID.randomUUID();
         UUID stockId = UUID.randomUUID();
         when(quoteRepository.existsByServiceOrderId(serviceOrderId)).thenReturn(false);
+        stubStock(stockId, "Filtro de óleo", "10.00");
 
         var cmd = new CreateQuoteUseCase.CreateQuoteCommand(
                 serviceOrderId,
                 List.of(
-                        new CreateQuoteUseCase.StockItemCommand(stockId, BigDecimal.TEN, 1),
-                        new CreateQuoteUseCase.StockItemCommand(stockId, BigDecimal.TEN, 2)),
+                        new CreateQuoteUseCase.StockItemCommand(stockId, 1),
+                        new CreateQuoteUseCase.StockItemCommand(stockId, 2)),
                 List.of());
 
         assertThatThrownBy(() -> service.execute(cmd)).isInstanceOf(QuoteItemAlreadyExistsException.class);
+        verify(stockClient, times(1)).findById(stockId);
+    }
+
+    @Test
+    void shouldRejectWhenStockItemIsNotFoundInTheStock() {
+        UUID serviceOrderId = UUID.randomUUID();
+        UUID stockId = UUID.randomUUID();
+        when(quoteRepository.existsByServiceOrderId(serviceOrderId)).thenReturn(false);
+        when(stockClient.findById(stockId)).thenReturn(Optional.empty());
+
+        var cmd = new CreateQuoteUseCase.CreateQuoteCommand(
+                serviceOrderId, List.of(new CreateQuoteUseCase.StockItemCommand(stockId, 1)), List.of());
+
+        assertThatThrownBy(() -> service.execute(cmd))
+                .isInstanceOf(StockNotFoundException.class)
+                .hasMessageContaining(stockId.toString());
+        verify(quoteRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldPropagateWhenTheStockIsUnavailable() {
+        UUID serviceOrderId = UUID.randomUUID();
+        UUID stockId = UUID.randomUUID();
+        when(quoteRepository.existsByServiceOrderId(serviceOrderId)).thenReturn(false);
+        when(stockClient.findById(stockId)).thenThrow(new StockUnavailableException(stockId, new RuntimeException("timeout")));
+
+        var cmd = new CreateQuoteUseCase.CreateQuoteCommand(
+                serviceOrderId, List.of(new CreateQuoteUseCase.StockItemCommand(stockId, 1)), List.of());
+
+        assertThatThrownBy(() -> service.execute(cmd)).isInstanceOf(StockUnavailableException.class);
+        verify(quoteRepository, never()).save(any());
     }
 
     @Test
@@ -122,12 +164,14 @@ class CreateQuoteServiceTest {
     @Test
     void shouldCreateQuoteWithOnlyStockItemsWhenServiceItemsAreNull() {
         UUID serviceOrderId = UUID.randomUUID();
+        UUID stockId = UUID.randomUUID();
         when(quoteRepository.existsByServiceOrderId(serviceOrderId)).thenReturn(false);
+        stubStock(stockId, "Pastilha de freio", "20.00");
         when(quoteRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         var cmd = new CreateQuoteUseCase.CreateQuoteCommand(
                 serviceOrderId,
-                List.of(new CreateQuoteUseCase.StockItemCommand(UUID.randomUUID(), new BigDecimal("20.00"), 2)),
+                List.of(new CreateQuoteUseCase.StockItemCommand(stockId, 2)),
                 null);
 
         Quote quote = service.execute(cmd);
@@ -166,5 +210,10 @@ class CreateQuoteServiceTest {
                 .isInstanceOf(QuoteItemAlreadyExistsException.class)
                 .hasMessageContaining("Troca de óleo");
         verify(quoteRepository, never()).save(any());
+    }
+
+    private void stubStock(UUID stockId, String productName, String unitPrice) {
+        when(stockClient.findById(stockId)).thenReturn(Optional.of(
+                new StockClient.StockView(stockId, productName, new BigDecimal(unitPrice))));
     }
 }

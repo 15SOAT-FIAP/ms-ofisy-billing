@@ -1,22 +1,21 @@
 package br.com.ofisy.ms_ofisy_billing.application.quote.create;
 
 import br.com.ofisy.ms_ofisy_billing.application.ports.ServiceCatalogClient;
+import br.com.ofisy.ms_ofisy_billing.application.ports.StockClient;
 import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.QuoteAlreadyExistsException;
 import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.QuoteItemAlreadyExistsException;
 import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.ServiceCatalogNotFoundException;
+import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.StockNotFoundException;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.Quote;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.QuoteRepository;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.QuoteServiceItem;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.QuoteStockItem;
 import lombok.RequiredArgsConstructor;
-import lombok.SneakyThrows;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -24,6 +23,7 @@ public class CreateQuoteService implements CreateQuoteUseCase {
 
     private final QuoteRepository quoteRepository;
     private final ServiceCatalogClient serviceCatalogClient;
+    private final StockClient stockClient;
 
     @Override
     @Transactional
@@ -49,7 +49,10 @@ public class CreateQuoteService implements CreateQuoteUseCase {
             if (duplicate) {
                 throw new QuoteItemAlreadyExistsException(command.stockId().toString());
             }
-            items.add(QuoteStockItem.create(command.stockId(), command.unitPrice(), command.quantity()));
+            StockClient.StockView stock = stockClient.findById(command.stockId())
+                    .orElseThrow(() -> new StockNotFoundException(command.stockId()));
+
+            items.add(QuoteStockItem.create(command.stockId(), stock.productName(), stock.unitPrice(), command.quantity()));
         }
 
         return items;
