@@ -8,7 +8,6 @@ import br.com.ofisy.ms_ofisy_billing.domain.quote.exceptions.InvalidQuoteStatusE
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -41,7 +40,7 @@ class ReproveQuoteServiceTest {
         UUID serviceOrderId = UUID.randomUUID();
         UUID stockId = UUID.randomUUID();
 
-        Quote quote = Quote.create(serviceOrderId, List.of(QuoteStockItem.create(stockId, BigDecimal.TEN, 5)), List.of());
+        Quote quote = Quote.create(serviceOrderId, List.of(QuoteStockItem.create(stockId, "Filtro de óleo", BigDecimal.TEN, 5)), List.of());
         quote.sendForApproval();
         when(quoteRepository.findById(quoteId)).thenReturn(Optional.of(quote));
         when(quoteRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
@@ -66,7 +65,7 @@ class ReproveQuoteServiceTest {
     @Test
     void shouldNotReproveAQuoteThatIsNotAwaitingApproval() {
         UUID quoteId = UUID.randomUUID();
-        Quote quote = Quote.create(UUID.randomUUID(), List.of(QuoteStockItem.create(UUID.randomUUID(), BigDecimal.TEN, 1)), List.of());
+        Quote quote = Quote.create(UUID.randomUUID(), List.of(QuoteStockItem.create(UUID.randomUUID(), "Filtro de óleo", BigDecimal.TEN, 1)), List.of());
         quote.sendForApproval();
         quote.approve();
         when(quoteRepository.findById(quoteId)).thenReturn(Optional.of(quote));
