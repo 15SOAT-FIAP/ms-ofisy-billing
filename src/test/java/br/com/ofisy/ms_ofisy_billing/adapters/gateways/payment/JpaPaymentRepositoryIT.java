@@ -67,4 +67,21 @@ class JpaPaymentRepositoryIT extends PostgresIntegrationTest {
             jpaPaymentRepository.flush();
         });
     }
+
+    @Test
+    void shouldAllowSeveralPaymentsWithoutExternalIdWhileTheProviderIsNotIntegrated() {
+        for (int i = 0; i < 2; i++) {
+            jpaPaymentRepository.save(PaymentEntity.builder()
+                    .serviceOrderId(UUID.randomUUID())
+                    .quoteId(UUID.randomUUID())
+                    .amount(BigDecimal.TEN)
+                    .status(PaymentStatus.PENDING)
+                    .createdAt(LocalDateTime.now())
+                    .build());
+        }
+
+        jpaPaymentRepository.flush();
+
+        assertThat(jpaPaymentRepository.findAll().stream().filter(p -> p.getExternalId() == null)).hasSize(2);
+    }
 }

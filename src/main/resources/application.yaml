@@ -23,8 +23,12 @@ spring:
     aws:
       region:
         static: us-east-1
+      sqs:
+        queue-not-found-strategy: fail
 ofisy:
   messaging:
+    queues:
+      billing: ofisy-billing.fifo
     topics:
       billing: ofisy-billing-events.fifo
     outbox:
@@ -33,6 +37,9 @@ ofisy:
 core:
   base-url: ${CORE_BASE_URL}
   service-token: ${CORE_SERVICE_TOKEN}
+stock:
+  base-url: ${STOCK_BASE_URL}
+  service-token: ${STOCK_SERVICE_TOKEN}
 logging:
   level:
     org.flywaydb: DEBUG

@@ -33,7 +33,7 @@ public class PaymentEntity {
     @Enumerated(EnumType.STRING)
     private PaymentStatus status;
 
-    @Column(nullable = false, unique = true)
+    @Column(unique = true)
     private String externalId;
 
     private String checkoutUrl;
