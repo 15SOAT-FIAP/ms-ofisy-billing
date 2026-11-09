@@ -54,7 +54,7 @@ O corpo da mensagem SNS é o envelope inteiro (não só o payload), porque a ass
 |--------------------------|----------------|--------------------------------------------------------------------------------------------------------------------|
 | `StockConsumed`          | ms-ofisy-stock | Orçamento `PENDING` → `AWAITING_APPROVAL`; publica `QuoteSentForApproval`                                          |
 | `StockConsumptionFailed` | ms-ofisy-stock | Orçamento → `CANCELLED`; publica `QuoteCancelled` (motivo `STOCK_UNAVAILABLE`)                                     |
-| `StockRefunded`          | ms-ofisy-stock | Orçamento ainda aberto → `CANCELLED`; publica `QuoteCancelled` (motivo `SERVICE_ORDER_CANCELLED`). Sem orçamento, ou já `REPROVED`/`CANCELLED`, é só registrado |
+| `StockRefunded`          | ms-ofisy-stock | Orçamento ainda aberto → `CANCELLED`; publica `QuoteCancelled` (motivo `SERVICE_ORDER_CANCELLED`)                   |
 | `ServiceOrderFinished`   | core           | Cria uma cobrança `PENDING` com o total do orçamento aprovado                                                      |
 
 O billing só usa o `serviceOrderId` do envelope nesses quatro eventos: o payload é ignorado, o que evita acoplar este ms ao formato escolhido por quem os produz.
@@ -82,7 +82,6 @@ O estoque não conseguiu dar baixa (falta de itens). O orçamento vai para `CANC
 O estoque devolveu os itens. Acontece em dois caminhos, e o billing trata os dois:
 
 - **OS cancelada** (`ServiceOrderCancelled` → `AllExecutionsCancelled` → `StockRefunded`): o orçamento ainda aberto vai para `CANCELLED` e o billing publica `QuoteCancelled` com motivo `SERVICE_ORDER_CANCELLED`, que é o aviso de que a compensação terminou.
-- **OS cancelada antes de existir orçamento** (por exemplo, em `RECEIVED` ou `IN_DIAGNOSTIC`): o execution e o estoque publicam os eventos mesmo sem nada a cancelar nem a devolver, então o `StockRefunded` chega para uma OS sem orçamento. O evento é só registrado, sem `QuoteCancelled`: não há orçamento para cancelar.
 - **Orçamento reprovado** (`QuoteReproved` → `StockRefunded`): o orçamento já está `REPROVED`, então o evento é só registrado. O core cancela a OS direto pelo `StockRefunded`, e um `QuoteCancelled` do billing seria um segundo aviso do mesmo fato. O mesmo vale se o orçamento já estiver `CANCELLED`.
 
 O envelope é o mesmo do `StockConsumed`, com `type` e `payload` próprios.
@@ -100,7 +99,8 @@ Todos saem pelo outbox, descrito em [Publicação de eventos](#publicação-de-e
 | Evento                 | Quando é publicado                                                 | Quem reage                                                                      |
 |------------------------|--------------------------------------------------------------------|---------------------------------------------------------------------------------|
 | `QuoteCreated`         | Orçamento **com itens de estoque** criado (`POST /quotes`)         | ms-ofisy-stock: dá baixa nos itens (`StockConsumed` / `StockConsumptionFailed`) |
-| `QuoteSentForApproval` | Estoque consumido; ou orçamento só com serviços, direto na criação | core: OS → `AWAITING_APPROVAL` e cria a notificação                             |
+| `QuoteSentForApproval` | Estoque consumido (na criação ou depois de uma edição); ou orçamento só com serviços, direto na criação | core: OS → `AWAITING_APPROVAL` e cria a notificação                             |
+| `QuoteUpdated`         | Itens do orçamento editados (`PATCH /quotes/{id}`), em toda edição | ms-ofisy-stock: baixa o que aumentou, devolve o que diminuiu e responde (`StockConsumed` / `StockConsumptionFailed`) |
 | `QuoteApproved`        | Cliente aprova o orçamento (rota pública)                          | ms-ofisy-execution: cria as execuções. core: OS → `AWAITING_EXECUTION`          |
 | `QuoteReproved`        | Cliente reprova o orçamento (rota pública)                         | ms-ofisy-stock: devolve os itens (`StockRefunded`). core: cancela a OS          |
 | `QuoteCancelled`       | Falta de estoque, ou estoque devolvido após o cancelamento da OS   | core: OS → cancelada                                                            |
@@ -142,6 +142,42 @@ O orçamento está pronto para o cliente decidir. Sai em dois momentos: ao consu
   }
 }
 ```
+
+#### `QuoteUpdated`
+
+Sai em **toda** edição dos itens de um orçamento `AWAITING_APPROVAL`, inclusive quando só os serviços mudaram ou quando todos os itens de estoque foram removidos. O payload traz a lista **completa e atual** dos itens de estoque (não a diferença) e o novo total; `stockItems` vai vazio quando não há itens de estoque, o que para o estoque significa devolver tudo.
+
+Depois da edição o orçamento volta para `PENDING` e espera a resposta do estoque, qualquer que seja a lista. Enquanto está `PENDING` ele não pode ser aprovado, reprovado nem editado de novo. O `QuoteSentForApproval` com o novo total só sai quando o `StockConsumed` chega.
+
+```json
+{
+  "eventId": "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f",
+  "type": "QuoteUpdated",
+  "serviceOrderId": "c3d4e5f6-a7b8-9012-cdef-123456780001",
+  "occurredAt": "2026-11-02T10:30:00.123456Z",
+  "payload": {
+    "quoteId": "7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d",
+    "totalPrice": 210.00,
+    "stockItems": [
+      { "stockId": "d1e2f3a4-b5c6-7890-def1-234567890abc", "quantity": 3 }
+    ]
+  }
+}
+```
+
+**Como o estoque consome** (contrato do `ms-ofisy-stock`, PR #17 do estoque): ele compara a lista recebida com o que está com a OS (o que saiu menos o que voltou), baixa o que aumentou e devolve o que diminuiu, e **sempre responde** com o `StockConsumed` (lista final) ou o `StockConsumptionFailed`, inclusive quando a diferença é zero. Se faltar saldo para algum aumento, nada se move e o `requestedQuantity` do `missingItems` é só o que faltava baixar a mais. Repetir o mesmo evento ou a mesma lista não altera o saldo.
+
+O que o billing faz com cada resposta:
+
+- `StockConsumed` com o orçamento `PENDING`: vai para `AWAITING_APPROVAL` e publica o `QuoteSentForApproval` com o novo total;
+- `StockConsumed` com o orçamento que não está `PENDING` (por exemplo, já cancelado): só registra, sem efeito;
+- `StockConsumptionFailed`: o orçamento é cancelado, o core cancela a OS e o estoque devolve o que já tinha saído pelo `AllExecutionsCancelled`;
+- edição que chega ao estoque depois da devolução da OS: o estoque ignora e não responde, e o orçamento não fica preso porque o cancelamento da OS já o levou a `CANCELLED`.
+
+**O que ainda precisa ser feito em outros serviços**
+
+- **core**: aceitar um segundo `QuoteSentForApproval` para a mesma OS, ainda em `AWAITING_APPROVAL`, atualizando o total e avisando o cliente de novo sem duplicar a OS.
+- **ms-ofisy-notification**: se também reage ao `QuoteSentForApproval`, aceitar a repetição.
 
 #### `QuoteApproved`
 
@@ -245,7 +281,7 @@ O diagrama mostra o `StockConsumed`. Os outros eventos seguem o mesmo caminho, t
 |---------------------------------|-------------------------------|---------------------------------------------------------------------------------------|
 | `StockConsumedHandler`          | `SendQuoteForApprovalUseCase` | Ignora (registra) se o orçamento já saiu de `PENDING`                                 |
 | `StockConsumptionFailedHandler` | `CancelQuoteUseCase`          | Motivo `STOCK_UNAVAILABLE`. Ignora (registra) se o orçamento já está `REPROVED`/`CANCELLED` |
-| `StockRefundedHandler`          | `CancelQuoteUseCase`          | Motivo `SERVICE_ORDER_CANCELLED`. Ignora (registra) se o orçamento já está `REPROVED`/`CANCELLED` ou se a OS não tem orçamento |
+| `StockRefundedHandler`          | `CancelQuoteUseCase`          | Motivo `SERVICE_ORDER_CANCELLED`. Ignora (registra) se o orçamento já está `REPROVED`/`CANCELLED` |
 | `ServiceOrderFinishedHandler`   | `CreatePaymentUseCase`        | Exige orçamento `APPROVED`                                                            |
 
 O `BillingEventsListener` não conhece os eventos: ele recebe todos os `EventHandler` registrados no Spring e despacha pelo `type`. Cada tipo de evento tem seu próprio handler em `adapters/listeners/handlers/`.
@@ -263,7 +299,7 @@ No `ServiceOrderFinished`, a proteção tem mais uma camada: antes de criar a co
 ### Falhas e DLQ
 
 - **Tipo sem handler**: o evento é logado como ignorado e confirmado, sem passar pelo banco. Na prática isso só acontece se a `FilterPolicy` deixar passar um tipo que ainda não tem handler.
-- **Orçamento inexistente (exceto no `StockRefunded`, que é só registrado), ou OS finalizada sem orçamento aprovado**: o caso de uso lança, a exceção impede o ack e, depois de 5 recebimentos, a mensagem vai para a DLQ, onde fica visível. Nesses casos o `eventId` **não** é gravado.
+- **Orçamento inexistente, ou OS finalizada sem orçamento aprovado**: o caso de uso lança, a exceção impede o ack e, depois de 5 recebimentos, a mensagem vai para a DLQ, onde fica visível. Nesses casos o `eventId` **não** é gravado.
 - **Mensagem inválida ou erro no processamento**: a exceção impede o ack, a mensagem volta para a fila depois do *visibility timeout* e, depois de 5 recebimentos, vai para a DLQ.
 
 ---
@@ -412,7 +448,8 @@ sequenceDiagram
 
 ```
 PENDING ──StockConsumed──▶ AWAITING_APPROVAL ──approve──▶ APPROVED
-   │                            │  └──────────reprove────▶ REPROVED
+   ▲                            │  └──────────reprove────▶ REPROVED
+   └─────── edição (com itens de estoque) ┘
    └──────────┬─────────────────┘
               ▼   (StockConsumptionFailed / StockRefunded; também a partir de APPROVED)
           CANCELLED

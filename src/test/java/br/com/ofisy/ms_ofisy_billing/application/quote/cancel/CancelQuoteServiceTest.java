@@ -113,25 +113,14 @@ class CancelQuoteServiceTest {
     }
 
     @Test
-    void shouldFailWithoutRecordingTheEventWhenTheQuoteDoesNotExistAfterAStockFailure() {
+    void shouldFailWithoutRecordingTheEventWhenTheQuoteDoesNotExist() {
         when(quoteRepository.findByServiceOrderId(serviceOrderId)).thenReturn(List.of());
 
-        assertThatThrownBy(() -> service.execute(command("StockConsumptionFailed", CancellationReason.STOCK_UNAVAILABLE)))
+        assertThatThrownBy(() -> service.execute(command("StockRefunded", CancellationReason.SERVICE_ORDER_CANCELLED)))
                 .isInstanceOf(QuoteNotFoundException.class);
 
         verifyNoInteractions(outboxEventRepository);
         verify(processedEventRepository, never()).save(any());
-    }
-
-    @Test
-    void shouldOnlyRecordTheEventWhenTheServiceOrderWasCancelledBeforeAnyQuoteExisted() {
-        when(quoteRepository.findByServiceOrderId(serviceOrderId)).thenReturn(List.of());
-
-        service.execute(command("StockRefunded", CancellationReason.SERVICE_ORDER_CANCELLED));
-
-        verify(quoteRepository, never()).save(any());
-        verifyNoInteractions(outboxEventRepository);
-        verify(processedEventRepository).save(any(ProcessedEvent.class));
     }
 
     private CancelQuoteCommand command(String type, CancellationReason reason) {
@@ -139,7 +128,7 @@ class CancelQuoteServiceTest {
     }
 
     private Quote pendingQuote() {
-        return Quote.create(serviceOrderId, List.of(QuoteStockItem.create(UUID.randomUUID(), BigDecimal.TEN, 1)), List.of());
+        return Quote.create(serviceOrderId, List.of(QuoteStockItem.create(UUID.randomUUID(), "Filtro de óleo", BigDecimal.TEN, 1)), List.of());
     }
 
     private Quote serviceOnlyQuote() {

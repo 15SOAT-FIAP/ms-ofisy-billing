@@ -111,6 +111,6 @@ class SendQuoteForApprovalServiceTest {
     }
 
     private Quote pendingQuote() {
-        return Quote.create(serviceOrderId, List.of(QuoteStockItem.create(UUID.randomUUID(), BigDecimal.TEN, 1)), List.of());
+        return Quote.create(serviceOrderId, List.of(QuoteStockItem.create(UUID.randomUUID(), "Filtro de óleo", BigDecimal.TEN, 1)), List.of());
     }
 }

@@ -11,12 +11,21 @@ import org.springframework.web.client.RestClient;
 public class RestClientConfig {
 
     private final CoreClientProperties coreClientProperties;
+    private final StockClientProperties stockClientProperties;
 
     @Bean
     public RestClient coreRestClient() {
         return RestClient.builder()
                 .baseUrl(coreClientProperties.getBaseUrl())
                 .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + coreClientProperties.getServiceToken())
+                .build();
+    }
+
+    @Bean
+    public RestClient stockRestClient() {
+        return RestClient.builder()
+                .baseUrl(stockClientProperties.getBaseUrl())
+                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + stockClientProperties.getServiceToken())
                 .build();
     }
 }
