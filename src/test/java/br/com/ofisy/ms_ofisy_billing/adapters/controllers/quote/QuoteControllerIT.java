@@ -24,7 +24,10 @@ import java.util.UUID;
 import static org.hamcrest.Matchers.equalTo;
 
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "jwt.secret=" + JwtTestTokens.SECRET
+)
 class QuoteControllerIT {
 
     private static final String BASE_URL = "/api/v1/quotes";
