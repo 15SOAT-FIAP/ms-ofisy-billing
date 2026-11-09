@@ -40,7 +40,7 @@ br.com.ofisy.ms_ofisy_billing
 │   └── listeners/                    # Adaptadores de entrada: consumo da fila SQS
 │       ├── dto/                          # Envelope do evento
 │       └── handlers/                     # Um EventHandler por tipo de evento
-├── config/                       # Configurações do Spring, segurança, JWT, cliente do core e tratamento global de erros
+├── config/                       # Configurações do Spring, segurança, JWT, Swagger, cliente do core e tratamento global de erros
 └── shared/                       # Validação do JWT (JwtService) e filtro de autenticação (JwtAuthFilter)
 ```
 
@@ -68,6 +68,7 @@ br.com.ofisy.ms_ofisy_billing
 | Spring Cloud AWS SNS | Publicação dos eventos do outbox no tópico                               | `spring-cloud-aws-starter-sns`                                                                                            |
 | Spring Web MVC       | Servidor web, API REST e `RestClient` (core e ms-ofisy-stock)            | `spring-boot-starter-webmvc`                                                                                              |
 | Spring Security      | Autorização das rotas por role                                           | `spring-boot-starter-security`                                                                                            |
+| OpenAPI / Swagger    | Documentação da API e Swagger UI                                         | `springdoc-openapi-starter-webmvc-ui`                                                                                     |
 | JJWT                 | Validação do JWT emitido pelo core                                       | `jjwt-api`, `jjwt-impl`, `jjwt-jackson`                                                                                   |
 | Spring Data JPA      | Persistência e mapeamento ORM                                            | `spring-boot-starter-data-jpa`                                                                                            |
 | Spring Validation    | Validação de DTOs e beans                                                | `spring-boot-starter-validation`                                                                                          |
@@ -78,7 +79,7 @@ br.com.ofisy.ms_ofisy_billing
 | Lombok               | Redução de código boilerplate                                            | `lombok`                                                                                                                  |
 | Spring Boot DevTools | Reinício automático durante o desenvolvimento                            | `spring-boot-devtools`                                                                                                    |
 | Testcontainers       | PostgreSQL e LocalStack reais nos testes de integração                   | `spring-boot-testcontainers`, `testcontainers-postgresql`, `testcontainers-localstack`, `spring-cloud-aws-testcontainers` |
-| REST Assured         | Declarado para testes de integração da API (ainda sem uso)               | `rest-assured`                                                                                                            |
+| REST Assured         | Chamadas HTTP nos testes de integração da API (`QuoteControllerIT`)      | `rest-assured`                                                                                                            |
 | Spring Security Test | Usuário simulado (`@WithMockUser`) nos testes `@WebMvcTest`              | `spring-security-test`                                                                                                    |
 | JaCoCo               | Relatório de cobertura e gate mínimo de 80% (linhas e branches)          | `jacoco-maven-plugin`                                                                                                     |
 
@@ -146,7 +147,7 @@ Ajuste os valores. O `JWT_SECRET` precisa ser o mesmo do core, que emite o token
 docker compose up -d --build
 ```
 
-A aplicação fica disponível em `http://localhost:8083`. O `--build` é necessário sempre que o código mudar: sem ele o Compose reaproveita a imagem anterior.
+A aplicação fica disponível em `http://localhost:8083`, e a documentação interativa no Swagger UI, em `http://localhost:8083/swagger-ui.html`. O `--build` é necessário sempre que o código mudar: sem ele o Compose reaproveita a imagem anterior.
 
 ### Opção 2: desenvolvimento local (dependências no Docker + aplicação na IDE)
 
@@ -281,7 +282,7 @@ Os demais comandos (`StockConsumptionFailed`, `StockRefunded`, DLQ) estão em [M
 
 ```bash
 ./mvnw test     # testes de unidade
-./mvnw verify   # unidade + integração (sobe Postgres via Testcontainers) + gate de cobertura de 80%
+./mvnw verify   # unidade + integração (sobe Postgres e LocalStack via Testcontainers) + gate de cobertura de 80%
 ```
 
 Os testes de integração (`*IT.java`) precisam do Docker ligado. Detalhes em [TESTING.md](docs/TESTING.md).

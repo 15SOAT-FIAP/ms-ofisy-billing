@@ -1,6 +1,6 @@
 # Autenticação e autorização
 
-As rotas de equipe da API exigem um JWT emitido pelo **core** ([techchallenge-ofisy](https://github.com/15SOAT-FIAP/techchallenge-ofisy)), que continua responsável pelo login (`POST /api/v1/login`) e pelos usuários. Este microsserviço não emite tokens nem tem banco de usuários: ele **valida** o token e autoriza a requisição pela role que vem nele (mesmo desenho do `ms-ofisy-execution`).
+As rotas de equipe da API exigem um JWT emitido pelo **core** ([techchallenge-ofisy](https://github.com/15SOAT-FIAP/techchallenge-ofisy)), que continua responsável pelo login (`POST /api/v1/login`) e pelos usuários. Este microsserviço não emite tokens nem tem banco de usuários: ele **valida** o token e autoriza a requisição pela role que vem nele.
 
 A estrutura segue a do core: `SecurityConfig` stateless, filtro `JwtAuthFilter`, `@PreAuthorize` nos endpoints e as mesmas respostas de 401 e 403.
 
@@ -46,6 +46,7 @@ As regras de equipe ficam no `@PreAuthorize` de cada método dos controllers.
 Configuradas em `security.public-paths` (`application.yaml`):
 
 - `/api/v1/quotes/*/approve` e `/api/v1/quotes/*/reprove`
+- `/swagger-ui/**`, `/swagger-ui.html` e `/v3/api-docs/**`
 - `/actuator/health`, usado para checar a saúde da aplicação
 
 ### Respostas de erro
@@ -84,3 +85,5 @@ curl -H "Authorization: Bearer $TOKEN" "localhost:8083/api/v1/quotes?serviceOrde
 ```
 
 Com `ROLE=STOCKMAN`, as rotas de equipe respondem 403.
+
+No Swagger UI (`http://localhost:8083/swagger-ui.html`), use o botão **Authorize** e cole o token. As rotas de aprovar e reprovar aparecem sem cadeado, porque são públicas.
