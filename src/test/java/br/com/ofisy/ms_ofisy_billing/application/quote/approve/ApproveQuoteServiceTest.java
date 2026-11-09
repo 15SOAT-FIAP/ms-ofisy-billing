@@ -1,10 +1,14 @@
 package br.com.ofisy.ms_ofisy_billing.application.quote.approve;
 
 import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.QuoteNotFoundException;
+import br.com.ofisy.ms_ofisy_billing.domain.outbox.OutboxEvent;
+import br.com.ofisy.ms_ofisy_billing.domain.outbox.OutboxEventRepository;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.Quote;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.QuoteRepository;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.QuoteServiceItem;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.exceptions.InvalidQuoteStatusException;
+
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -17,6 +21,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import static br.com.ofisy.ms_ofisy_billing.support.OutboxEventPayloads.payloadOf;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -27,16 +32,18 @@ class ApproveQuoteServiceTest {
 
     @Mock
     private QuoteRepository quoteRepository;
+    @Mock
+    private OutboxEventRepository outboxEventRepository;
 
     private ApproveQuoteService service;
 
     @BeforeEach
     void setUp() {
-        service = new ApproveQuoteService(quoteRepository);
+        service = new ApproveQuoteService(quoteRepository, outboxEventRepository);
     }
 
     @Test
-    void shouldApproveQuoteWithServiceCatalogIds() {
+    void shouldApproveQuoteAndPublishQuoteApprovedWithServiceCatalogIds() {
         UUID quoteId = UUID.randomUUID();
         UUID serviceOrderId = UUID.randomUUID();
         UUID serviceCatalogId = UUID.randomUUID();
@@ -48,6 +55,13 @@ class ApproveQuoteServiceTest {
         Quote result = service.execute(quoteId);
 
         assertThat(result.getStatus().name()).isEqualTo("APPROVED");
+
+        ArgumentCaptor<OutboxEvent> captor = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outboxEventRepository).save(captor.capture());
+        assertThat(captor.getValue().getEventType()).isEqualTo("QuoteApproved");
+        assertThat(payloadOf(captor.getValue()))
+                .contains("\"serviceItems\":[{\"serviceCatalogId\":\"" + serviceCatalogId + "\"}]")
+                .doesNotContain("stockItems");
     }
 
     @Test
@@ -56,10 +70,11 @@ class ApproveQuoteServiceTest {
         when(quoteRepository.findById(quoteId)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.execute(quoteId)).isInstanceOf(QuoteNotFoundException.class);
+        verifyNoInteractions(outboxEventRepository);
     }
 
     @Test
-    void shouldNotApproveAQuoteThatIsNotPending() {
+    void shouldNotApproveAQuoteThatIsNotAwaitingApproval() {
         UUID quoteId = UUID.randomUUID();
         Quote quote = Quote.create(UUID.randomUUID(), List.of(), List.of(QuoteServiceItem.create(UUID.randomUUID(), BigDecimal.TEN)));
         quote.reprove("Preço alto");

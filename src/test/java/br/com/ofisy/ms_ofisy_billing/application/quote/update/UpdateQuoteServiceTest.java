@@ -8,6 +8,8 @@ import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.QuoteNotFoundE
 import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.ServiceCatalogNotFoundException;
 import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.StockNotFoundException;
 import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.StockUnavailableException;
+import br.com.ofisy.ms_ofisy_billing.domain.outbox.OutboxEvent;
+import br.com.ofisy.ms_ofisy_billing.domain.outbox.OutboxEventRepository;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.Quote;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.QuoteRepository;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.QuoteServiceItem;
@@ -17,6 +19,7 @@ import br.com.ofisy.ms_ofisy_billing.domain.quote.exceptions.InvalidQuoteStatusE
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -25,6 +28,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import static br.com.ofisy.ms_ofisy_billing.support.OutboxEventPayloads.payloadOf;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -36,6 +40,8 @@ class UpdateQuoteServiceTest {
     @Mock
     private QuoteRepository quoteRepository;
     @Mock
+    private OutboxEventRepository outboxEventRepository;
+    @Mock
     private ServiceCatalogClient serviceCatalogClient;
     @Mock
     private StockClient stockClient;
@@ -44,11 +50,11 @@ class UpdateQuoteServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new UpdateQuoteService(quoteRepository, serviceCatalogClient, stockClient);
+        service = new UpdateQuoteService(quoteRepository, outboxEventRepository, serviceCatalogClient, stockClient);
     }
 
     @Test
-    void shouldUpdateItemsOfAQuoteAwaitingApproval() {
+    void shouldUpdateItemsOfAQuoteAwaitingApprovalAndPublishQuoteUpdated() {
         UUID quoteId = UUID.randomUUID();
         UUID stockId = UUID.randomUUID();
         Quote quote = awaitingApprovalQuoteWithOneStockItem();
@@ -67,6 +73,58 @@ class UpdateQuoteServiceTest {
         assertThat(result.getStockItems()).singleElement().satisfies(item -> {
             assertThat(item.getProductName()).isEqualTo("Pastilha de freio");
             assertThat(item.getUnitPrice()).isEqualByComparingTo("15.00");
+        });
+
+        assertThat(result.getStatus().name()).isEqualTo("PENDING");
+
+        List<OutboxEvent> events = savedEvents();
+        assertThat(events).singleElement().satisfies(event -> {
+            assertThat(event.getEventType()).isEqualTo("QuoteUpdated");
+            assertThat(event.getServiceOrderId()).isEqualTo(quote.getServiceOrderId());
+            assertThat(payloadOf(event))
+                    .contains(stockId.toString())
+                    .contains("\"quantity\":2")
+                    .contains("\"totalPrice\":30");
+        });
+    }
+
+    @Test
+    void shouldPublishQuoteUpdatedWithAnEmptyListWhenAllStockItemsAreRemoved() {
+        UUID quoteId = UUID.randomUUID();
+        UUID serviceCatalogId = UUID.randomUUID();
+        when(quoteRepository.findById(quoteId)).thenReturn(Optional.of(awaitingApprovalQuoteWithOneStockItem()));
+        when(serviceCatalogClient.findById(serviceCatalogId)).thenReturn(Optional.of(
+                new ServiceCatalogClient.ServiceCatalogView(serviceCatalogId, "Alinhamento", new BigDecimal("90.00"))));
+        when(quoteRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Quote result = service.execute(new UpdateQuoteUseCase.UpdateQuoteCommand(
+                quoteId, List.of(), List.of(new CreateQuoteUseCase.ServiceItemCommand(serviceCatalogId))));
+
+        assertThat(result.getStatus().name()).isEqualTo("PENDING");
+        assertThat(savedEvents()).singleElement().satisfies(event -> {
+            assertThat(event.getEventType()).isEqualTo("QuoteUpdated");
+            assertThat(payloadOf(event)).contains("\"stockItems\":[]").contains("\"totalPrice\":90");
+        });
+    }
+
+    @Test
+    void shouldPublishQuoteUpdatedAlsoWhenAServiceOnlyQuoteIsEdited() {
+        UUID quoteId = UUID.randomUUID();
+        UUID serviceCatalogId = UUID.randomUUID();
+        Quote quote = Quote.create(UUID.randomUUID(), List.of(),
+                List.of(QuoteServiceItem.create(UUID.randomUUID(), new BigDecimal("50.00"))));
+        when(quoteRepository.findById(quoteId)).thenReturn(Optional.of(quote));
+        when(serviceCatalogClient.findById(serviceCatalogId)).thenReturn(Optional.of(
+                new ServiceCatalogClient.ServiceCatalogView(serviceCatalogId, "Alinhamento", new BigDecimal("90.00"))));
+        when(quoteRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Quote result = service.execute(new UpdateQuoteUseCase.UpdateQuoteCommand(
+                quoteId, List.of(), List.of(new CreateQuoteUseCase.ServiceItemCommand(serviceCatalogId))));
+
+        assertThat(result.getStatus().name()).isEqualTo("PENDING");
+        assertThat(savedEvents()).singleElement().satisfies(event -> {
+            assertThat(event.getEventType()).isEqualTo("QuoteUpdated");
+            assertThat(payloadOf(event)).contains("\"stockItems\":[]");
         });
     }
 
@@ -155,6 +213,7 @@ class UpdateQuoteServiceTest {
 
         assertThatThrownBy(() -> service.execute(cmd)).isInstanceOf(InvalidQuoteItemException.class);
         verify(quoteRepository, never()).save(any());
+        verifyNoInteractions(outboxEventRepository);
     }
 
     @Test
@@ -169,6 +228,7 @@ class UpdateQuoteServiceTest {
 
         assertThatThrownBy(() -> service.execute(cmd)).isInstanceOf(ServiceCatalogNotFoundException.class);
         verify(quoteRepository, never()).save(any());
+        verifyNoInteractions(outboxEventRepository);
     }
 
     @Test
@@ -188,6 +248,7 @@ class UpdateQuoteServiceTest {
                 .isInstanceOf(QuoteItemAlreadyExistsException.class)
                 .hasMessageContaining(stockId.toString());
         verify(quoteRepository, never()).save(any());
+        verifyNoInteractions(outboxEventRepository);
     }
 
     @Test
@@ -208,6 +269,7 @@ class UpdateQuoteServiceTest {
                 .isInstanceOf(QuoteItemAlreadyExistsException.class)
                 .hasMessageContaining("Troca de óleo");
         verify(quoteRepository, never()).save(any());
+        verifyNoInteractions(outboxEventRepository);
     }
 
     @Test
@@ -226,6 +288,7 @@ class UpdateQuoteServiceTest {
 
         assertThatThrownBy(() -> service.execute(cmd)).isInstanceOf(InvalidQuoteStatusException.class);
         verify(quoteRepository, never()).save(any());
+        verifyNoInteractions(outboxEventRepository);
     }
 
     @Test
@@ -246,6 +309,7 @@ class UpdateQuoteServiceTest {
                 .isInstanceOf(InvalidQuoteStatusException.class)
                 .hasMessageContaining("PENDING");
         verify(quoteRepository, never()).save(any());
+        verifyNoInteractions(outboxEventRepository);
     }
 
     @Test
@@ -343,6 +407,7 @@ class UpdateQuoteServiceTest {
                 .isInstanceOf(StockNotFoundException.class)
                 .hasMessageContaining(stockId.toString());
         verify(quoteRepository, never()).save(any());
+        verifyNoInteractions(outboxEventRepository);
     }
 
     @Test
@@ -357,6 +422,13 @@ class UpdateQuoteServiceTest {
 
         assertThatThrownBy(() -> service.execute(cmd)).isInstanceOf(StockUnavailableException.class);
         verify(quoteRepository, never()).save(any());
+        verifyNoInteractions(outboxEventRepository);
+    }
+
+    private List<OutboxEvent> savedEvents() {
+        ArgumentCaptor<OutboxEvent> captor = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outboxEventRepository, atLeastOnce()).save(captor.capture());
+        return captor.getAllValues();
     }
 
     private void stubStock(UUID stockId, String productName, String unitPrice) {

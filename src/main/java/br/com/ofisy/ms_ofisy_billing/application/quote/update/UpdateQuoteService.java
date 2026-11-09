@@ -7,6 +7,8 @@ import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.QuoteItemAlrea
 import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.QuoteNotFoundException;
 import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.ServiceCatalogNotFoundException;
 import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.StockNotFoundException;
+import br.com.ofisy.ms_ofisy_billing.domain.outbox.OutboxEvent;
+import br.com.ofisy.ms_ofisy_billing.domain.outbox.OutboxEventRepository;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.Quote;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.QuoteRepository;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.QuoteServiceItem;
@@ -18,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -29,7 +32,10 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class UpdateQuoteService implements UpdateQuoteUseCase {
 
+    private static final String QUOTE_UPDATED = "QuoteUpdated";
+
     private final QuoteRepository quoteRepository;
+    private final OutboxEventRepository outboxEventRepository;
     private final ServiceCatalogClient serviceCatalogClient;
     private final StockClient stockClient;
 
@@ -50,7 +56,30 @@ public class UpdateQuoteService implements UpdateQuoteUseCase {
         List<QuoteServiceItem> serviceItems = buildServiceItems(quote, serviceCommands);
 
         quote.update(stockItems, serviceItems);
-        return quoteRepository.save(quote);
+        Quote saved = quoteRepository.save(quote);
+
+        outboxEventRepository.save(quoteUpdatedEvent(saved));
+
+        return saved;
+    }
+
+    private OutboxEvent quoteUpdatedEvent(Quote quote) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("quoteId", quote.getId());
+        payload.put("totalPrice", quote.getTotalPrice());
+        payload.put("stockItems", stockItemsPayload(quote));
+        return OutboxEvent.create(QUOTE_UPDATED, quote.getServiceOrderId(), payload);
+    }
+
+    private List<Map<String, Object>> stockItemsPayload(Quote quote) {
+        return quote.getStockItems().stream()
+                .map(item -> {
+                    Map<String, Object> entry = new LinkedHashMap<>();
+                    entry.put("stockId", item.getStockId());
+                    entry.put("quantity", item.getQuantity());
+                    return entry;
+                })
+                .toList();
     }
 
     private List<QuoteStockItem> buildStockItems(Quote quote, List<CreateQuoteUseCase.StockItemCommand> commands) {

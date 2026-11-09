@@ -162,6 +162,31 @@ class QuoteTest {
     }
 
     @Test
+    void shouldGoBackToPendingAfterAnyUpdateWhileTheStockAdjusts() {
+        Quote withStock = Quote.create(UUID.randomUUID(), List.of(stockItem()), List.of());
+        withStock.sendForApproval();
+        withStock.update(List.of(stockItem()), List.of());
+
+        Quote withoutStock = Quote.create(UUID.randomUUID(), List.of(stockItem()), List.of());
+        withoutStock.sendForApproval();
+        withoutStock.update(List.of(), List.of(serviceItem()));
+
+        assertThat(withStock.getStatus()).isEqualTo(QuoteStatus.PENDING);
+        assertThat(withoutStock.getStatus()).isEqualTo(QuoteStatus.PENDING);
+    }
+
+    @Test
+    void shouldBeAbleToGoToApprovalAgainAfterTheStockConfirmsAnUpdate() {
+        Quote quote = Quote.create(UUID.randomUUID(), List.of(stockItem()), List.of());
+        quote.sendForApproval();
+        quote.update(List.of(), List.of(serviceItem()));
+
+        quote.sendForApproval();
+
+        assertThat(quote.getStatus()).isEqualTo(QuoteStatus.AWAITING_APPROVAL);
+    }
+
+    @Test
     void shouldNotUpdateAQuoteWhileTheStockIsStillBeingConsumed() {
         Quote quote = Quote.create(UUID.randomUUID(), List.of(stockItem()), List.of());
 

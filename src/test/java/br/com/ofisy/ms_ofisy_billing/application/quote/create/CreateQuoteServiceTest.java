@@ -7,12 +7,16 @@ import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.QuoteItemAlrea
 import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.ServiceCatalogNotFoundException;
 import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.StockNotFoundException;
 import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.StockUnavailableException;
+import br.com.ofisy.ms_ofisy_billing.domain.outbox.OutboxEventRepository;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.Quote;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.QuoteRepository;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.exceptions.InvalidQuoteDataException;
+
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -21,6 +25,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import static br.com.ofisy.ms_ofisy_billing.support.OutboxEventPayloads.payloadOf;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -32,6 +37,8 @@ class CreateQuoteServiceTest {
     @Mock
     private QuoteRepository quoteRepository;
     @Mock
+    private OutboxEventRepository outboxEventRepository;
+    @Mock
     private ServiceCatalogClient serviceCatalogClient;
     @Mock
     private StockClient stockClient;
@@ -40,11 +47,11 @@ class CreateQuoteServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new CreateQuoteService(quoteRepository, serviceCatalogClient, stockClient);
+        service = new CreateQuoteService(quoteRepository, outboxEventRepository, serviceCatalogClient, stockClient);
     }
 
     @Test
-    void shouldCreateQuoteGenerated() {
+    void shouldCreateQuoteAndPublishQuoteCreatedWithTheStockItemsToConsume() {
         UUID serviceOrderId = UUID.randomUUID();
         UUID serviceCatalogId = UUID.randomUUID();
         UUID stockId = UUID.randomUUID();
@@ -63,10 +70,42 @@ class CreateQuoteServiceTest {
         Quote quote = service.execute(cmd);
 
         assertThat(quote.getTotalPrice()).isEqualByComparingTo("150.00");
+        assertThat(quote.getStatus().name()).isEqualTo("PENDING");
         assertThat(quote.getStockItems()).singleElement().satisfies(item -> {
             assertThat(item.getProductName()).isEqualTo("Filtro de óleo");
             assertThat(item.getUnitPrice()).isEqualByComparingTo("30.00");
         });
+
+        ArgumentCaptor<br.com.ofisy.ms_ofisy_billing.domain.outbox.OutboxEvent> eventCaptor =
+                ArgumentCaptor.forClass(br.com.ofisy.ms_ofisy_billing.domain.outbox.OutboxEvent.class);
+        verify(outboxEventRepository).save(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().getEventType()).isEqualTo("QuoteCreated");
+        assertThat(eventCaptor.getValue().getServiceOrderId()).isEqualTo(serviceOrderId);
+        assertThat(payloadOf(eventCaptor.getValue())).contains(stockId.toString()).contains("\"quantity\":1");
+    }
+
+    @Test
+    void shouldSendQuoteStraightForApprovalWhenItHasOnlyServices() {
+        UUID serviceOrderId = UUID.randomUUID();
+        UUID serviceCatalogId = UUID.randomUUID();
+
+        when(quoteRepository.existsByServiceOrderId(serviceOrderId)).thenReturn(false);
+        when(serviceCatalogClient.findById(serviceCatalogId))
+                .thenReturn(Optional.of(new ServiceCatalogClient.ServiceCatalogView(serviceCatalogId, "Alinhamento", new BigDecimal("80.00"))));
+        when(quoteRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var cmd = new CreateQuoteUseCase.CreateQuoteCommand(
+                serviceOrderId, List.of(), List.of(new CreateQuoteUseCase.ServiceItemCommand(serviceCatalogId)));
+
+        Quote quote = service.execute(cmd);
+
+        assertThat(quote.getStatus().name()).isEqualTo("AWAITING_APPROVAL");
+
+        ArgumentCaptor<br.com.ofisy.ms_ofisy_billing.domain.outbox.OutboxEvent> eventCaptor =
+                ArgumentCaptor.forClass(br.com.ofisy.ms_ofisy_billing.domain.outbox.OutboxEvent.class);
+        verify(outboxEventRepository).save(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().getEventType()).isEqualTo("QuoteSentForApproval");
+        assertThat(payloadOf(eventCaptor.getValue())).contains("\"totalPrice\":80");
     }
 
     @Test
@@ -77,6 +116,7 @@ class CreateQuoteServiceTest {
         var cmd = new CreateQuoteUseCase.CreateQuoteCommand(serviceOrderId, List.of(), List.of());
 
         assertThatThrownBy(() -> service.execute(cmd)).isInstanceOf(QuoteAlreadyExistsException.class);
+        verifyNoInteractions(outboxEventRepository);
     }
 
     @Test

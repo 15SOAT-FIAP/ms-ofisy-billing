@@ -6,6 +6,8 @@ import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.QuoteAlreadyEx
 import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.QuoteItemAlreadyExistsException;
 import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.ServiceCatalogNotFoundException;
 import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.StockNotFoundException;
+import br.com.ofisy.ms_ofisy_billing.domain.outbox.OutboxEvent;
+import br.com.ofisy.ms_ofisy_billing.domain.outbox.OutboxEventRepository;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.Quote;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.QuoteRepository;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.QuoteServiceItem;
@@ -15,13 +17,19 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
 public class CreateQuoteService implements CreateQuoteUseCase {
 
+    private static final String QUOTE_CREATED = "QuoteCreated";
+    private static final String QUOTE_SENT_FOR_APPROVAL = "QuoteSentForApproval";
+
     private final QuoteRepository quoteRepository;
+    private final OutboxEventRepository outboxEventRepository;
     private final ServiceCatalogClient serviceCatalogClient;
     private final StockClient stockClient;
 
@@ -37,6 +45,10 @@ public class CreateQuoteService implements CreateQuoteUseCase {
 
         Quote quote = Quote.create(cmd.serviceOrderId(), stockItems, serviceItems);
         Quote saved = quoteRepository.save(quote);
+
+        outboxEventRepository.save(saved.requiresStockConsumption()
+                ? quoteCreatedEvent(saved)
+                : quoteSentForApprovalEvent(saved));
 
         return saved;
     }
@@ -75,5 +87,30 @@ public class CreateQuoteService implements CreateQuoteUseCase {
         }
 
         return items;
+    }
+
+    private OutboxEvent quoteCreatedEvent(Quote quote) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("quoteId", quote.getId());
+        payload.put("stockItems", stockItemsPayload(quote));
+        return OutboxEvent.create(QUOTE_CREATED, quote.getServiceOrderId(), payload);
+    }
+
+    private OutboxEvent quoteSentForApprovalEvent(Quote quote) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("quoteId", quote.getId());
+        payload.put("totalPrice", quote.getTotalPrice());
+        return OutboxEvent.create(QUOTE_SENT_FOR_APPROVAL, quote.getServiceOrderId(), payload);
+    }
+
+    private List<Map<String, Object>> stockItemsPayload(Quote quote) {
+        return quote.getStockItems().stream()
+                .map(item -> {
+                    Map<String, Object> entry = new LinkedHashMap<>();
+                    entry.put("stockId", item.getStockId());
+                    entry.put("quantity", item.getQuantity());
+                    return entry;
+                })
+                .toList();
     }
 }

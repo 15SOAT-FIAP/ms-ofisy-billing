@@ -135,6 +135,7 @@ public class Quote {
         this.totalPrice = calculateTotal(this.stockItems, this.serviceItems);
         this.stockItems.forEach(item -> item.setQuote(this));
         this.serviceItems.forEach(item -> item.setQuote(this));
+        this.status = QuoteStatus.PENDING;
         this.updatedAt = LocalDateTime.now();
     }
 
