@@ -34,12 +34,24 @@ ofisy:
     outbox:
       publish-interval: 1s
       batch-size: 100
+jwt:
+  secret: ${JWT_SECRET}
 core:
   base-url: ${CORE_BASE_URL}
   service-token: ${CORE_SERVICE_TOKEN}
 stock:
   base-url: ${STOCK_BASE_URL}
   service-token: ${STOCK_SERVICE_TOKEN}
+security:
+  public-paths:
+    - /api/v1/quotes/*/approve
+    - /api/v1/quotes/*/reprove
+    - /actuator/health
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
 logging:
   level:
     org.flywaydb: DEBUG
