@@ -2,7 +2,7 @@
 
 FIAP 15SOAT - Tech Challenge - Grupo 81
 
-Microsserviço responsável pelo **orçamento (quote) de uma ordem de serviço** da Ofisy: criação, edição, aprovação, reprovação e cancelamento, além da cobrança (`Payment`) gerada quando a OS é finalizada. Ele publica o que acontece com o orçamento (`QuoteCreated`, `QuoteSentForApproval`, `QuoteApproved`, `QuoteReproved`, `QuoteCancelled`) e reage aos eventos do estoque e do core (`StockConsumed`, `StockConsumptionFailed`, `StockRefunded`, `ServiceOrderFinished`).
+Microsserviço responsável pelo **orçamento (quote) de uma ordem de serviço** da Ofisy: criação, edição, aprovação, reprovação e cancelamento, além da cobrança (`Payment`) gerada quando a OS é finalizada. Ele publica o que acontece com o orçamento (`QuoteCreated`, `QuoteUpdated`, `QuoteSentForApproval`, `QuoteApproved`, `QuoteReproved`, `QuoteCancelled`) e reage aos eventos do estoque e do core (`StockConsumed`, `StockConsumptionFailed`, `StockRefunded`, `ServiceOrderFinished`).
 
 O contexto de orçamento foi extraído do core da Ofisy ([techchallenge-ofisy](https://github.com/15SOAT-FIAP/techchallenge-ofisy)), que continua existindo enquanto alguns contextos são estrangulados para microsserviços. Este ms participa da saga coordenada por coreografia, e as decisões por trás dessa arquitetura estão registradas nos ADRs do core:
 
@@ -16,7 +16,7 @@ A integração com o Mercado Pago (criar a cobrança no provedor, receber o webh
 
 ## Estrutura do Projeto
 
-O código segue a mesma organização em camadas do core e do `ms-ofisy-execution`: **Clean Architecture** com conceitos de **DDD**. Como o ms tem dois agregados (`Quote` e `Payment`), os pacotes de domínio, de gateways e de presenters são subdivididos por agregado.
+O código segue a mesma organização em camadas do core: **Clean Architecture** com conceitos de **DDD**. Como o ms tem dois agregados (`Quote` e `Payment`), os pacotes de domínio, de gateways e de presenters são subdivididos por agregado.
 
 ```
 br.com.ofisy.ms_ofisy_billing
@@ -165,15 +165,15 @@ O PostgreSQL sobe sozinho pelo Spring Boot Docker Compose (`compose.db.yaml`, po
 
 Base: `/api/v1`
 
-| Método  | Rota                              | Acesso                                   | Descrição                                                                                            |
-|---------|-----------------------------------|------------------------------------------|------------------------------------------------------------------------------------------------------|
-| `POST`  | `/quotes`                         | staff (`ADMIN`, `ATTENDANT`, `MECHANIC`) | Cria o orçamento de uma OS                                                                           |
-| `PATCH` | `/quotes/{id}`                    | staff                                    | Edita os itens de um orçamento `AWAITING_APPROVAL`; ele volta a `PENDING` até o estoque responder    |
-| `PATCH` | `/quotes/{id}/approve`            | **público**                              | Cliente aprova o orçamento (`AWAITING_APPROVAL` → `APPROVED`)                                        |
-| `PATCH` | `/quotes/{id}/reprove`            | **público**                              | Cliente reprova o orçamento (`AWAITING_APPROVAL` → `REPROVED`), informando o motivo                  |
-| `GET`   | `/quotes/{id}`                    | staff                                    | Busca um orçamento por id                                                                            |
-| `GET`   | `/quotes?serviceOrderId={id}`     | staff                                    | Busca o orçamento de uma OS                                                                          |
-| `GET`   | `/payments?serviceOrderId={id}`   | staff                                    | Consulta as cobranças de uma OS (criadas `PENDING` quando a OS é finalizada)                         |
+| Método  | Rota                              | Acesso                                   | Descrição                                                                                           |
+|---------|-----------------------------------|------------------------------------------|-----------------------------------------------------------------------------------------------------|
+| `POST`  | `/quotes`                         | staff (`ADMIN`, `ATTENDANT`, `MECHANIC`) | Cria o orçamento de uma OS                                                                          |
+| `PATCH` | `/quotes/{id}`                    | staff                                    | Edita os itens de um orçamento `AWAITING_APPROVAL`; ele volta a `PENDING` até o estoque responder   |
+| `PATCH` | `/quotes/{id}/approve`            | **público**                              | Cliente aprova o orçamento (`AWAITING_APPROVAL` → `APPROVED`)                                       |
+| `PATCH` | `/quotes/{id}/reprove`            | **público**                              | Cliente reprova o orçamento (`AWAITING_APPROVAL` → `REPROVED`), informando o motivo                 |
+| `GET`   | `/quotes/{id}`                    | staff                                    | Busca um orçamento por id                                                                           |
+| `GET`   | `/quotes?serviceOrderId={id}`     | staff                                    | Busca o orçamento de uma OS                                                                         |
+| `GET`   | `/payments?serviceOrderId={id}`   | staff                                    | Consulta as cobranças de uma OS (criadas `PENDING` quando a OS é finalizada)                        |
 
 As rotas de aprovar e reprovar são abertas nesta aplicação porque quem as protege é o Lambda Authorizer de CPF/CNPJ no API Gateway. As demais exigem um JWT emitido pelo core com role `ADMIN`, `ATTENDANT` ou `MECHANIC`. Sem token válido a resposta é `401`, e com outra role é `403` ([SECURITY.md](docs/SECURITY.md)). Para testar localmente, gere um token com `make token ROLE=ATTENDANT`.
 
@@ -221,10 +221,18 @@ curl -s -X POST localhost:8083/api/v1/quotes -H "Authorization: Bearer $TOKEN" -
 # 2. o estoque responde: AWAITING_APPROVAL + QuoteSentForApproval
 make event-stock-consumed SERVICE_ORDER_ID=$OS
 
-# 3. o cliente aprova (rota pública): APPROVED + QuoteApproved
+# 3. (opcional) a equipe edita a quantidade: o orçamento volta a PENDING e grava o QuoteUpdated no outbox,
+#    que o estoque consome para ajustar a baixa. O item que já estava no orçamento não gera nova chamada ao estoque
+curl -s -X PATCH localhost:8083/api/v1/quotes/<id-do-orcamento> -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d "{\"stockItems\":[{\"stockId\":\"$STOCK_ID\",\"quantity\":3}],\"serviceItems\":[]}"
+
+# 3b. o estoque responde ao ajuste: AWAITING_APPROVAL de novo + um segundo QuoteSentForApproval, com o novo total
+make event-stock-consumed SERVICE_ORDER_ID=$OS
+
+# 4. o cliente aprova (rota pública): APPROVED + QuoteApproved
 curl -s -X PATCH localhost:8083/api/v1/quotes/<id-do-orcamento>/approve
 
-# 4. a OS é finalizada: cobrança PENDING
+# 5. a OS é finalizada: cobrança PENDING
 make event-service-order-finished SERVICE_ORDER_ID=$OS
 
 make db-quotes SERVICE_ORDER_ID=$OS ; make db-payments SERVICE_ORDER_ID=$OS ; make events-peek
