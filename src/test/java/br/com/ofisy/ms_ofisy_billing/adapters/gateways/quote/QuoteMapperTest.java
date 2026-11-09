@@ -17,7 +17,7 @@ class QuoteMapperTest {
     void shouldRoundTripBetweenDomainAndEntityKeepingItemsAndTotal() {
         Quote quote = Quote.create(
                 UUID.randomUUID(),
-                List.of(QuoteStockItem.create(UUID.randomUUID(), new BigDecimal("20.00"), 2)),
+                List.of(QuoteStockItem.create(UUID.randomUUID(), "Filtro de óleo", new BigDecimal("20.00"), 2)),
                 List.of(QuoteServiceItem.create(UUID.randomUUID(), new BigDecimal("60.00"))));
 
         QuoteEntity entity = QuoteMapper.toEntity(quote);
@@ -27,12 +27,14 @@ class QuoteMapperTest {
         assertThat(entity.getStockItems()).hasSize(1);
         assertThat(entity.getServiceItems()).hasSize(1);
         assertThat(entity.getStockItems().get(0).getQuote()).isSameAs(entity);
+        assertThat(entity.getStockItems().get(0).getProductName()).isEqualTo("Filtro de óleo");
 
         Quote rebuilt = QuoteMapper.toDomain(entity);
 
         assertThat(rebuilt.getServiceOrderId()).isEqualTo(quote.getServiceOrderId());
         assertThat(rebuilt.getStatus()).isEqualTo(quote.getStatus());
         assertThat(rebuilt.getStockItems()).hasSize(1);
+        assertThat(rebuilt.getStockItems().get(0).getProductName()).isEqualTo("Filtro de óleo");
         assertThat(rebuilt.getServiceItems()).hasSize(1);
     }
 }

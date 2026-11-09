@@ -44,7 +44,6 @@ public class Quote {
             throw new InvalidQuoteDataException(serviceOrderId);
         }
 
-        // Sem itens de estoque não há baixa a aguardar: o orçamento já nasce pronto para aprovação
         quote.status = quote.requiresStockConsumption() ? QuoteStatus.PENDING : QuoteStatus.AWAITING_APPROVAL;
         quote.totalPrice = calculateTotal(quote.stockItems, quote.serviceItems);
         quote.createdAt = LocalDateTime.now();
@@ -80,7 +79,6 @@ public class Quote {
         return !stockItems.isEmpty();
     }
 
-    /** Estoque consumido (StockConsumed): o orçamento segue para a decisão do cliente. */
     public void sendForApproval() {
         if (!QuoteStatus.PENDING.equals(this.status)) {
             throw new InvalidQuoteStatusException(ACTION_SEND_FOR_APPROVAL, this.status);
@@ -93,14 +91,12 @@ public class Quote {
         return QuoteStatus.APPROVED.equals(this.status);
     }
 
-    /** REPROVED e CANCELLED são finais: não há mais o que compensar nesses orçamentos. */
     public boolean isCancellable() {
         return QuoteStatus.PENDING.equals(this.status)
                 || QuoteStatus.AWAITING_APPROVAL.equals(this.status)
                 || QuoteStatus.APPROVED.equals(this.status);
     }
 
-    /** Compensação da saga: falta de estoque (PENDING) ou OS cancelada depois do orçamento. */
     public void cancel() {
         if (!isCancellable()) {
             throw new InvalidQuoteStatusException(ACTION_CANCEL, this.status);
@@ -127,7 +123,7 @@ public class Quote {
     }
 
     public void update(List<QuoteStockItem> newStockItems, List<QuoteServiceItem> newServiceItems) {
-        if (!QuoteStatus.PENDING.equals(this.status)) {
+        if (!QuoteStatus.AWAITING_APPROVAL.equals(this.status)) {
             throw new InvalidQuoteStatusException(ACTION_EDIT, this.status);
         }
         if ((newStockItems == null || newStockItems.isEmpty())
@@ -139,6 +135,7 @@ public class Quote {
         this.totalPrice = calculateTotal(this.stockItems, this.serviceItems);
         this.stockItems.forEach(item -> item.setQuote(this));
         this.serviceItems.forEach(item -> item.setQuote(this));
+        this.status = QuoteStatus.PENDING;
         this.updatedAt = LocalDateTime.now();
     }
 

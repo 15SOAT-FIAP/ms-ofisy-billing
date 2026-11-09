@@ -1,9 +1,11 @@
 package br.com.ofisy.ms_ofisy_billing.application.quote.create;
 
 import br.com.ofisy.ms_ofisy_billing.application.ports.ServiceCatalogClient;
+import br.com.ofisy.ms_ofisy_billing.application.ports.StockClient;
 import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.QuoteAlreadyExistsException;
 import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.QuoteItemAlreadyExistsException;
 import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.ServiceCatalogNotFoundException;
+import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.StockNotFoundException;
 import br.com.ofisy.ms_ofisy_billing.domain.outbox.OutboxEvent;
 import br.com.ofisy.ms_ofisy_billing.domain.outbox.OutboxEventRepository;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.Quote;
@@ -18,7 +20,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -30,6 +31,7 @@ public class CreateQuoteService implements CreateQuoteUseCase {
     private final QuoteRepository quoteRepository;
     private final OutboxEventRepository outboxEventRepository;
     private final ServiceCatalogClient serviceCatalogClient;
+    private final StockClient stockClient;
 
     @Override
     @Transactional
@@ -59,7 +61,10 @@ public class CreateQuoteService implements CreateQuoteUseCase {
             if (duplicate) {
                 throw new QuoteItemAlreadyExistsException(command.stockId().toString());
             }
-            items.add(QuoteStockItem.create(command.stockId(), command.unitPrice(), command.quantity()));
+            StockClient.StockView stock = stockClient.findById(command.stockId())
+                    .orElseThrow(() -> new StockNotFoundException(command.stockId()));
+
+            items.add(QuoteStockItem.create(command.stockId(), stock.productName(), stock.unitPrice(), command.quantity()));
         }
 
         return items;
@@ -84,7 +89,6 @@ public class CreateQuoteService implements CreateQuoteUseCase {
         return items;
     }
 
-    /** Pede a baixa de estoque ao ms-ofisy-stock: ele precisa dos itens e das quantidades. */
     private OutboxEvent quoteCreatedEvent(Quote quote) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("quoteId", quote.getId());
@@ -92,8 +96,7 @@ public class CreateQuoteService implements CreateQuoteUseCase {
         return OutboxEvent.create(QUOTE_CREATED, quote.getServiceOrderId(), payload);
     }
 
-    /** Orçamento só com serviços: não há baixa de estoque a aguardar, então já segue para aprovação. */
-        private OutboxEvent quoteSentForApprovalEvent(Quote quote) {
+    private OutboxEvent quoteSentForApprovalEvent(Quote quote) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("quoteId", quote.getId());
         payload.put("totalPrice", quote.getTotalPrice());

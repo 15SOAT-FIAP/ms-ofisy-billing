@@ -151,13 +151,59 @@ class QuoteTest {
     }
 
     @Test
-    void shouldUpdateItemsAndRecalculateTotalWhilePending() {
+    void shouldUpdateItemsAndRecalculateTotalWhileAwaitingApproval() {
         Quote quote = Quote.create(UUID.randomUUID(), List.of(stockItem()), List.of());
+        quote.sendForApproval();
 
         quote.update(List.of(), List.of(serviceItem()));
 
         assertThat(quote.getTotalPrice()).isEqualByComparingTo("100.00");
         assertThat(quote.getServiceItems()).hasSize(1);
+    }
+
+    @Test
+    void shouldGoBackToPendingAfterAnyUpdateWhileTheStockAdjusts() {
+        Quote withStock = Quote.create(UUID.randomUUID(), List.of(stockItem()), List.of());
+        withStock.sendForApproval();
+        withStock.update(List.of(stockItem()), List.of());
+
+        Quote withoutStock = Quote.create(UUID.randomUUID(), List.of(stockItem()), List.of());
+        withoutStock.sendForApproval();
+        withoutStock.update(List.of(), List.of(serviceItem()));
+
+        assertThat(withStock.getStatus()).isEqualTo(QuoteStatus.PENDING);
+        assertThat(withoutStock.getStatus()).isEqualTo(QuoteStatus.PENDING);
+    }
+
+    @Test
+    void shouldBeAbleToGoToApprovalAgainAfterTheStockConfirmsAnUpdate() {
+        Quote quote = Quote.create(UUID.randomUUID(), List.of(stockItem()), List.of());
+        quote.sendForApproval();
+        quote.update(List.of(), List.of(serviceItem()));
+
+        quote.sendForApproval();
+
+        assertThat(quote.getStatus()).isEqualTo(QuoteStatus.AWAITING_APPROVAL);
+    }
+
+    @Test
+    void shouldNotUpdateAQuoteWhileTheStockIsStillBeingConsumed() {
+        Quote quote = Quote.create(UUID.randomUUID(), List.of(stockItem()), List.of());
+
+        assertThatThrownBy(() -> quote.update(List.of(stockItem()), List.of()))
+                .isInstanceOf(InvalidQuoteStatusException.class)
+                .hasMessageContaining("editar")
+                .hasMessageContaining("PENDING");
+    }
+
+    @Test
+    void shouldNotUpdateACancelledQuote() {
+        Quote quote = Quote.create(UUID.randomUUID(), List.of(stockItem()), List.of());
+        quote.cancel();
+
+        assertThatThrownBy(() -> quote.update(List.of(stockItem()), List.of()))
+                .isInstanceOf(InvalidQuoteStatusException.class)
+                .hasMessageContaining("CANCELLED");
     }
 
     @Test
@@ -173,6 +219,7 @@ class QuoteTest {
     @Test
     void shouldNotUpdateToHaveNoItems() {
         Quote quote = Quote.create(UUID.randomUUID(), List.of(stockItem()), List.of());
+        quote.sendForApproval();
 
         assertThatThrownBy(() -> quote.update(List.of(), List.of()))
                 .isInstanceOf(InvalidQuoteDataException.class);
@@ -265,6 +312,7 @@ class QuoteTest {
     @Test
     void shouldUpdateWithOnlyStockItemsWhenServiceItemsAreNull() {
         Quote quote = Quote.create(UUID.randomUUID(), List.of(stockItem()), List.of(serviceItem()));
+        quote.sendForApproval();
 
         quote.update(List.of(stockItem()), null);
 
@@ -276,6 +324,7 @@ class QuoteTest {
     @Test
     void shouldUpdateWithOnlyServiceItemsWhenStockItemsAreNull() {
         Quote quote = Quote.create(UUID.randomUUID(), List.of(stockItem()), List.of());
+        quote.sendForApproval();
 
         quote.update(null, List.of(serviceItem()));
 
@@ -287,6 +336,7 @@ class QuoteTest {
     @Test
     void shouldNotUpdateWhenBothItemListsAreNull() {
         Quote quote = Quote.create(UUID.randomUUID(), List.of(stockItem()), List.of());
+        quote.sendForApproval();
 
         assertThatThrownBy(() -> quote.update(null, null))
                 .isInstanceOf(InvalidQuoteDataException.class);
@@ -295,6 +345,7 @@ class QuoteTest {
     @Test
     void shouldNotUpdateWhenStockItemsAreEmptyAndServiceItemsAreNull() {
         Quote quote = Quote.create(UUID.randomUUID(), List.of(stockItem()), List.of());
+        quote.sendForApproval();
 
         assertThatThrownBy(() -> quote.update(List.of(), null))
                 .isInstanceOf(InvalidQuoteDataException.class);
@@ -303,6 +354,7 @@ class QuoteTest {
     @Test
     void shouldNotUpdateWhenStockItemsAreNullAndServiceItemsAreEmpty() {
         Quote quote = Quote.create(UUID.randomUUID(), List.of(stockItem()), List.of());
+        quote.sendForApproval();
 
         assertThatThrownBy(() -> quote.update(null, List.of()))
                 .isInstanceOf(InvalidQuoteDataException.class);
@@ -311,6 +363,7 @@ class QuoteTest {
     @Test
     void shouldLinkItemsBackToTheQuoteOnUpdate() {
         Quote quote = Quote.create(UUID.randomUUID(), List.of(stockItem()), List.of());
+        quote.sendForApproval();
         QuoteServiceItem newItem = serviceItem();
 
         quote.update(List.of(), List.of(newItem));
@@ -341,7 +394,7 @@ class QuoteTest {
     }
 
     private QuoteStockItem stockItem() {
-        return QuoteStockItem.create(UUID.randomUUID(), new BigDecimal("50.00"), 2);
+        return QuoteStockItem.create(UUID.randomUUID(), "Filtro de óleo", new BigDecimal("50.00"), 2);
     }
 
     private QuoteServiceItem serviceItem() {

@@ -16,12 +16,16 @@ public class QuoteStockItem {
     private UUID id;
     private Quote quote;
     private UUID stockId;
+    private String productName;
     private BigDecimal unitPrice;
     private Integer quantity;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
-    public static QuoteStockItem create(UUID stockId, BigDecimal unitPrice, Integer quantity) {
+    public static QuoteStockItem create(UUID stockId, String productName, BigDecimal unitPrice, Integer quantity) {
+        if (productName == null || productName.isBlank()) {
+            throw new InvalidQuoteItemException("Nome do produto do item de estoque é obrigatório!");
+        }
         if (quantity == null || quantity <= 0) {
             throw new InvalidQuoteItemException("Quantidade do item deve ser maior que zero!");
         }
@@ -30,6 +34,7 @@ public class QuoteStockItem {
         }
         QuoteStockItem item = new QuoteStockItem();
         item.stockId = stockId;
+        item.productName = productName;
         item.unitPrice = unitPrice;
         item.quantity = quantity;
         item.createdAt = LocalDateTime.now();
@@ -37,17 +42,26 @@ public class QuoteStockItem {
         return item;
     }
 
-    public static QuoteStockItem reconstruct(UUID id, UUID stockId, BigDecimal unitPrice,
-                                              Integer quantity, LocalDateTime createdAt,
-                                              LocalDateTime updatedAt) {
+    public static QuoteStockItem reconstruct(UUID id, UUID stockId, String productName,
+                                              BigDecimal unitPrice, Integer quantity,
+                                              LocalDateTime createdAt, LocalDateTime updatedAt) {
         QuoteStockItem item = new QuoteStockItem();
         item.id = id;
         item.stockId = stockId;
+        item.productName = productName;
         item.unitPrice = unitPrice;
         item.quantity = quantity;
         item.createdAt = createdAt;
         item.updatedAt = updatedAt;
         return item;
+    }
+
+    public void changeQuantity(Integer quantity) {
+        if (quantity == null || quantity <= 0) {
+            throw new InvalidQuoteItemException("Quantidade do item deve ser maior que zero!");
+        }
+        this.quantity = quantity;
+        this.updatedAt = LocalDateTime.now();
     }
 
     void setQuote(Quote quote) {

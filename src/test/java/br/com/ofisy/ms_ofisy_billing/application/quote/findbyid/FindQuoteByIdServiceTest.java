@@ -35,7 +35,7 @@ class FindQuoteByIdServiceTest {
     @Test
     void shouldReturnTheQuoteWhenItExists() {
         UUID quoteId = UUID.randomUUID();
-        Quote quote = Quote.create(UUID.randomUUID(), List.of(QuoteStockItem.create(UUID.randomUUID(), BigDecimal.TEN, 1)), List.of());
+        Quote quote = Quote.create(UUID.randomUUID(), List.of(QuoteStockItem.create(UUID.randomUUID(), "Filtro de óleo", BigDecimal.TEN, 1)), List.of());
         when(quoteRepository.findById(quoteId)).thenReturn(Optional.of(quote));
 
         assertThat(service.execute(quoteId)).isSameAs(quote);
