@@ -54,7 +54,7 @@ O corpo da mensagem SNS é o envelope inteiro (não só o payload), porque a ass
 |--------------------------|----------------|--------------------------------------------------------------------------------------------------------------------|
 | `StockConsumed`          | ms-ofisy-stock | Orçamento `PENDING` → `AWAITING_APPROVAL`; publica `QuoteSentForApproval`                                          |
 | `StockConsumptionFailed` | ms-ofisy-stock | Orçamento → `CANCELLED`; publica `QuoteCancelled` (motivo `STOCK_UNAVAILABLE`)                                     |
-| `StockRefunded`          | ms-ofisy-stock | Orçamento ainda aberto → `CANCELLED`; publica `QuoteCancelled` (motivo `SERVICE_ORDER_CANCELLED`)                   |
+| `StockRefunded`          | ms-ofisy-stock | Orçamento ainda aberto → `CANCELLED`; publica `QuoteCancelled` (motivo `SERVICE_ORDER_CANCELLED`). Sem orçamento, ou já `REPROVED`/`CANCELLED`, é só registrado |
 | `ServiceOrderFinished`   | core           | Cria uma cobrança `PENDING` com o total do orçamento aprovado                                                      |
 
 O billing só usa o `serviceOrderId` do envelope nesses quatro eventos: o payload é ignorado, o que evita acoplar este ms ao formato escolhido por quem os produz.
@@ -82,6 +82,7 @@ O estoque não conseguiu dar baixa (falta de itens). O orçamento vai para `CANC
 O estoque devolveu os itens. Acontece em dois caminhos, e o billing trata os dois:
 
 - **OS cancelada** (`ServiceOrderCancelled` → `AllExecutionsCancelled` → `StockRefunded`): o orçamento ainda aberto vai para `CANCELLED` e o billing publica `QuoteCancelled` com motivo `SERVICE_ORDER_CANCELLED`, que é o aviso de que a compensação terminou.
+- **OS cancelada antes de existir orçamento** (por exemplo, em `RECEIVED` ou `IN_DIAGNOSTIC`): o execution e o estoque publicam os eventos mesmo sem nada a cancelar nem a devolver, então o `StockRefunded` chega para uma OS sem orçamento. O evento é só registrado, sem `QuoteCancelled`: não há orçamento para cancelar.
 - **Orçamento reprovado** (`QuoteReproved` → `StockRefunded`): o orçamento já está `REPROVED`, então o evento é só registrado. O core cancela a OS direto pelo `StockRefunded`, e um `QuoteCancelled` do billing seria um segundo aviso do mesmo fato. O mesmo vale se o orçamento já estiver `CANCELLED`.
 
 O envelope é o mesmo do `StockConsumed`, com `type` e `payload` próprios.
@@ -281,7 +282,7 @@ O diagrama mostra o `StockConsumed`. Os outros eventos seguem o mesmo caminho, t
 |---------------------------------|-------------------------------|---------------------------------------------------------------------------------------|
 | `StockConsumedHandler`          | `SendQuoteForApprovalUseCase` | Ignora (registra) se o orçamento já saiu de `PENDING`                                 |
 | `StockConsumptionFailedHandler` | `CancelQuoteUseCase`          | Motivo `STOCK_UNAVAILABLE`. Ignora (registra) se o orçamento já está `REPROVED`/`CANCELLED` |
-| `StockRefundedHandler`          | `CancelQuoteUseCase`          | Motivo `SERVICE_ORDER_CANCELLED`. Ignora (registra) se o orçamento já está `REPROVED`/`CANCELLED` |
+| `StockRefundedHandler`          | `CancelQuoteUseCase`          | Motivo `SERVICE_ORDER_CANCELLED`. Ignora (registra) se o orçamento já está `REPROVED`/`CANCELLED` ou se a OS não tem orçamento |
 | `ServiceOrderFinishedHandler`   | `CreatePaymentUseCase`        | Exige orçamento `APPROVED`                                                            |
 
 O `BillingEventsListener` não conhece os eventos: ele recebe todos os `EventHandler` registrados no Spring e despacha pelo `type`. Cada tipo de evento tem seu próprio handler em `adapters/listeners/handlers/`.
@@ -299,7 +300,7 @@ No `ServiceOrderFinished`, a proteção tem mais uma camada: antes de criar a co
 ### Falhas e DLQ
 
 - **Tipo sem handler**: o evento é logado como ignorado e confirmado, sem passar pelo banco. Na prática isso só acontece se a `FilterPolicy` deixar passar um tipo que ainda não tem handler.
-- **Orçamento inexistente, ou OS finalizada sem orçamento aprovado**: o caso de uso lança, a exceção impede o ack e, depois de 5 recebimentos, a mensagem vai para a DLQ, onde fica visível. Nesses casos o `eventId` **não** é gravado.
+- **Orçamento inexistente (exceto no `StockRefunded`, que é só registrado), ou OS finalizada sem orçamento aprovado**: o caso de uso lança, a exceção impede o ack e, depois de 5 recebimentos, a mensagem vai para a DLQ, onde fica visível. Nesses casos o `eventId` **não** é gravado.
 - **Mensagem inválida ou erro no processamento**: a exceção impede o ack, a mensagem volta para a fila depois do *visibility timeout* e, depois de 5 recebimentos, vai para a DLQ.
 
 ---

@@ -113,14 +113,25 @@ class CancelQuoteServiceTest {
     }
 
     @Test
-    void shouldFailWithoutRecordingTheEventWhenTheQuoteDoesNotExist() {
+    void shouldFailWithoutRecordingTheEventWhenTheQuoteDoesNotExistAfterAStockFailure() {
         when(quoteRepository.findByServiceOrderId(serviceOrderId)).thenReturn(List.of());
 
-        assertThatThrownBy(() -> service.execute(command("StockRefunded", CancellationReason.SERVICE_ORDER_CANCELLED)))
+        assertThatThrownBy(() -> service.execute(command("StockConsumptionFailed", CancellationReason.STOCK_UNAVAILABLE)))
                 .isInstanceOf(QuoteNotFoundException.class);
 
         verifyNoInteractions(outboxEventRepository);
         verify(processedEventRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldOnlyRecordTheEventWhenTheServiceOrderWasCancelledBeforeAnyQuoteExisted() {
+        when(quoteRepository.findByServiceOrderId(serviceOrderId)).thenReturn(List.of());
+
+        service.execute(command("StockRefunded", CancellationReason.SERVICE_ORDER_CANCELLED));
+
+        verify(quoteRepository, never()).save(any());
+        verifyNoInteractions(outboxEventRepository);
+        verify(processedEventRepository).save(any(ProcessedEvent.class));
     }
 
     private CancelQuoteCommand command(String type, CancellationReason reason) {

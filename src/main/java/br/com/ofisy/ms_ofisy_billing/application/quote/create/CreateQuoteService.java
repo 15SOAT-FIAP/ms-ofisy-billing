@@ -90,6 +90,7 @@ public class CreateQuoteService implements CreateQuoteUseCase {
         return items;
     }
 
+    /** Pede a baixa de estoque ao ms-ofisy-stock: ele precisa dos itens e das quantidades. */
     private OutboxEvent quoteCreatedEvent(Quote quote) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("quoteId", quote.getId());
@@ -97,7 +98,8 @@ public class CreateQuoteService implements CreateQuoteUseCase {
         return OutboxEvent.create(QUOTE_CREATED, quote.getServiceOrderId(), payload);
     }
 
-    private OutboxEvent quoteSentForApprovalEvent(Quote quote) {
+    /** Orçamento só com serviços: não há baixa de estoque a aguardar, então já segue para aprovação. */
+        private OutboxEvent quoteSentForApprovalEvent(Quote quote) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("quoteId", quote.getId());
         payload.put("totalPrice", quote.getTotalPrice());

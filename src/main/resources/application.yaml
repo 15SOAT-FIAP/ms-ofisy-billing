@@ -37,6 +37,9 @@ ofisy:
 core:
   base-url: ${CORE_BASE_URL}
   service-token: ${CORE_SERVICE_TOKEN}
+stock:
+  base-url: ${STOCK_BASE_URL}
+  service-token: ${STOCK_SERVICE_TOKEN}
 logging:
   level:
     org.flywaydb: DEBUG

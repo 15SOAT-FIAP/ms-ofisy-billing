@@ -10,6 +10,7 @@ import org.springframework.web.client.RestClient;
 @RequiredArgsConstructor
 public class RestClientConfig {
 
+    public static final String BEARER = "Bearer ";
     private final CoreClientProperties coreClientProperties;
     private final StockClientProperties stockClientProperties;
 
@@ -17,7 +18,7 @@ public class RestClientConfig {
     public RestClient coreRestClient() {
         return RestClient.builder()
                 .baseUrl(coreClientProperties.getBaseUrl())
-                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + coreClientProperties.getServiceToken())
+                .defaultHeader(HttpHeaders.AUTHORIZATION, BEARER + coreClientProperties.getServiceToken())
                 .build();
     }
 
@@ -25,7 +26,7 @@ public class RestClientConfig {
     public RestClient stockRestClient() {
         return RestClient.builder()
                 .baseUrl(stockClientProperties.getBaseUrl())
-                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + stockClientProperties.getServiceToken())
+                .defaultHeader(HttpHeaders.AUTHORIZATION, BEARER + stockClientProperties.getServiceToken())
                 .build();
     }
 }
