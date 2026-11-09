@@ -25,10 +25,9 @@ Testcontainers subindo um Postgres real.
     publicado, o salto dos eventos da OS que falhou e a continuidade das outras OSs.
   - Segurança: `JwtServiceTest` (assinatura, expiração, issuer e extração de `sub`/`role`),
     `JwtAuthFilterTest` (monta a autenticação a partir do header), `SecurityHandlersTest` (corpos
-    de 401/403) e `QuoteControllerSecurityTest`, um `@WebMvcTest` com a cadeia de segurança real
-    (filtro + `@PreAuthorize` + handlers): 401 sem token/token inválido/expirado/de cliente, 403
-    para `STOCKMAN` ou token sem `role`, 200 para `ADMIN`/`ATTENDANT`/`MECHANIC` e rotas de
-    aprovar/reprovar abertas. Os tokens vêm do `JwtTestTokens`.
+    de 401/403) e `GlobalExceptionHandlerTest` (o acesso negado passa direto pelo handler global,
+    para a cadeia de segurança responder 401/403 em vez de 500). O `QuoteControllerTest` usa
+    `@WebMvcTest` com os filtros desligados e `@WithMockUser`, como no `ms-ofisy-execution`.
   - `JpaQuoteRepository`/`JpaPaymentRepository`/`JpaProcessedEventRepository`: `@DataJpaTest` +
     Testcontainers Postgres, validando que as migrations do Flyway produzem um schema
     compatível com as entidades (constraints de unicidade incluídas, e `external_id` nulo).

@@ -16,7 +16,7 @@ A integração com o Mercado Pago (criar a cobrança no provedor, receber o webh
 
 ## Estrutura do Projeto
 
-O código segue a mesma organização em camadas do core: **Clean Architecture** com conceitos de **DDD**. Como o ms tem dois agregados (`Quote` e `Payment`), os pacotes de domínio, de gateways e de presenters são subdivididos por agregado.
+O código segue a mesma organização em camadas do core e do `ms-ofisy-execution`: **Clean Architecture** com conceitos de **DDD**. Como o ms tem dois agregados (`Quote` e `Payment`), os pacotes de domínio, de gateways e de presenters são subdivididos por agregado.
 
 ```
 br.com.ofisy.ms_ofisy_billing
@@ -79,7 +79,7 @@ br.com.ofisy.ms_ofisy_billing
 | Spring Boot DevTools | Reinício automático durante o desenvolvimento                            | `spring-boot-devtools`                                                                                                    |
 | Testcontainers       | PostgreSQL e LocalStack reais nos testes de integração                   | `spring-boot-testcontainers`, `testcontainers-postgresql`, `testcontainers-localstack`, `spring-cloud-aws-testcontainers` |
 | REST Assured         | Declarado para testes de integração da API (ainda sem uso)               | `rest-assured`                                                                                                            |
-| Spring Security Test | Usuário simulado e cadeia de segurança real nos testes `@WebMvcTest`     | `spring-security-test`                                                                                                    |
+| Spring Security Test | Usuário simulado (`@WithMockUser`) nos testes `@WebMvcTest`              | `spring-security-test`                                                                                                    |
 | JaCoCo               | Relatório de cobertura e gate mínimo de 80% (linhas e branches)          | `jacoco-maven-plugin`                                                                                                     |
 
 ---
@@ -165,15 +165,15 @@ O PostgreSQL sobe sozinho pelo Spring Boot Docker Compose (`compose.db.yaml`, po
 
 Base: `/api/v1`
 
-| Método  | Rota                              | Acesso                                   | Descrição                                                                                              |
-|---------|-----------------------------------|------------------------------------------|--------------------------------------------------------------------------------------------------------|
-| `POST`  | `/quotes`                         | staff (`ADMIN`, `ATTENDANT`, `MECHANIC`) | Cria o orçamento de uma OS                                                                             |
-| `PATCH` | `/quotes/{id}`                    | staff                                    | Edita os itens de um orçamento `AWAITING_APPROVAL`; ele volta a `PENDING` até o estoque responder      |
-| `PATCH` | `/quotes/{id}/approve`            | **público**                              | Cliente aprova o orçamento (`AWAITING_APPROVAL` → `APPROVED`)                                          |
-| `PATCH` | `/quotes/{id}/reprove`            | **público**                              | Cliente reprova o orçamento (`AWAITING_APPROVAL` → `REPROVED`), informando o motivo                    |
-| `GET`   | `/quotes/{id}`                    | staff                                    | Busca um orçamento por id                                                                              |
-| `GET`   | `/quotes?serviceOrderId={id}`     | staff                                    | Busca o orçamento de uma OS                                                                            |
-| `GET`   | `/payments?serviceOrderId={id}`   | staff                                    | Consulta as cobranças de uma OS (criadas `PENDING` quando a OS é finalizada)                           |
+| Método  | Rota                              | Acesso                                   | Descrição                                                                                            |
+|---------|-----------------------------------|------------------------------------------|------------------------------------------------------------------------------------------------------|
+| `POST`  | `/quotes`                         | staff (`ADMIN`, `ATTENDANT`, `MECHANIC`) | Cria o orçamento de uma OS                                                                           |
+| `PATCH` | `/quotes/{id}`                    | staff                                    | Edita os itens de um orçamento `AWAITING_APPROVAL`; ele volta a `PENDING` até o estoque responder    |
+| `PATCH` | `/quotes/{id}/approve`            | **público**                              | Cliente aprova o orçamento (`AWAITING_APPROVAL` → `APPROVED`)                                        |
+| `PATCH` | `/quotes/{id}/reprove`            | **público**                              | Cliente reprova o orçamento (`AWAITING_APPROVAL` → `REPROVED`), informando o motivo                  |
+| `GET`   | `/quotes/{id}`                    | staff                                    | Busca um orçamento por id                                                                            |
+| `GET`   | `/quotes?serviceOrderId={id}`     | staff                                    | Busca o orçamento de uma OS                                                                          |
+| `GET`   | `/payments?serviceOrderId={id}`   | staff                                    | Consulta as cobranças de uma OS (criadas `PENDING` quando a OS é finalizada)                         |
 
 As rotas de aprovar e reprovar são abertas nesta aplicação porque quem as protege é o Lambda Authorizer de CPF/CNPJ no API Gateway. As demais exigem um JWT emitido pelo core com role `ADMIN`, `ATTENDANT` ou `MECHANIC`. Sem token válido a resposta é `401`, e com outra role é `403` ([SECURITY.md](docs/SECURITY.md)). Para testar localmente, gere um token com `make token ROLE=ATTENDANT`.
 

@@ -46,7 +46,7 @@ As regras de equipe ficam no `@PreAuthorize` de cada método dos controllers.
 Configuradas em `security.public-paths` (`application.yaml`):
 
 - `/api/v1/quotes/*/approve` e `/api/v1/quotes/*/reprove`
-- `/actuator/health`, usado pelas probes
+- `/actuator/health`, usado para checar a saúde da aplicação
 
 ### Respostas de erro
 
