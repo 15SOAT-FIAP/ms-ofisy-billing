@@ -27,6 +27,9 @@ public class QuoteStockItemEntity {
     @Column(nullable = false)
     private UUID stockId;
 
+    @Column(nullable = false)
+    private String productName;
+
     @Column(nullable = false, precision = 10, scale = 2)
     private BigDecimal unitPrice;
 

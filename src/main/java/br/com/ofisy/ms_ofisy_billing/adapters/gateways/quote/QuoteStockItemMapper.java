@@ -11,6 +11,7 @@ public class QuoteStockItemMapper {
         return QuoteStockItemEntity.builder()
                 .id(item.getId())
                 .stockId(item.getStockId())
+                .productName(item.getProductName())
                 .unitPrice(item.getUnitPrice())
                 .quantity(item.getQuantity())
                 .createdAt(item.getCreatedAt())
@@ -22,6 +23,7 @@ public class QuoteStockItemMapper {
         return QuoteStockItem.reconstruct(
                 entity.getId(),
                 entity.getStockId(),
+                entity.getProductName(),
                 entity.getUnitPrice(),
                 entity.getQuantity(),
                 entity.getCreatedAt(),

@@ -1,4 +1,20 @@
 services:
+  localstack:
+    image: localstack/localstack:4.13.1
+    container_name: ms-ofisy-billing-local-localstack
+    environment:
+      SERVICES: sns,sqs
+      AWS_DEFAULT_REGION: us-east-1
+    ports:
+      - "4566:4566"
+    volumes:
+      - "./localstack/init/ready.d:/etc/localstack/init/ready.d"
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -s localhost:4566/_localstack/init/ready | grep -q '\"completed\": true'" ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   postgres:
     image: postgres:16
     container_name: ms-ofisy-billing-local-db
