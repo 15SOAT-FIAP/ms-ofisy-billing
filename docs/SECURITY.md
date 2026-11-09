@@ -1,6 +1,6 @@
 # Autenticação e autorização
 
-As rotas de equipe da API exigem um JWT emitido pelo **core** ([techchallenge-ofisy](https://github.com/15SOAT-FIAP/techchallenge-ofisy)), que continua responsável pelo login (`POST /api/v1/login`) e pelos usuários. Este microsserviço não emite tokens nem tem banco de usuários: ele **valida** o token e autoriza a requisição pela role que vem nele (mesmo desenho do `ms-ofisy-execution`).
+As rotas de equipe da API exigem um JWT emitido pelo **core** ([techchallenge-ofisy](https://github.com/15SOAT-FIAP/techchallenge-ofisy)), que continua responsável pelo login (`POST /api/v1/login`) e pelos usuários. Este microsserviço não emite tokens nem tem banco de usuários: ele **valida** o token e autoriza a requisição pela role que vem nele.
 
 A estrutura segue a do core: `SecurityConfig` stateless, filtro `JwtAuthFilter`, `@PreAuthorize` nos endpoints e as mesmas respostas de 401 e 403.
 

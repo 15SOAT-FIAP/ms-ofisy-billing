@@ -2,7 +2,7 @@
 
 Postgres próprio deste serviço (ADR-0010 — nenhum serviço lê tabela de outro; referências
 entre serviços são só por id). Migrations com Flyway (ver [FLYWAY.md](FLYWAY.md)), `classpath:db/migration`,
-`ddl-auto: none` (schema gerenciado só pelo Flyway, igual ao `ms-ofisy-execution`).
+`ddl-auto: none` (schema gerenciado só pelo Flyway).
 
 ## Tabelas
 
@@ -11,7 +11,7 @@ entre serviços são só por id). Migrations com Flyway (ver [FLYWAY.md](FLYWAY.
 | V1 | `quotes` | Orçamento da ordem de serviço. `service_order_id` é único: uma OS tem no máximo um orçamento (o fluxo de "novo orçamento" é reabrir via reprovação/edição, não criar um segundo). |
 | V2 | `quote_stock_items`, `quote_service_items` | Itens do orçamento. Guardam `stock_id`/`service_catalog_id` (UUID) — nunca uma referência de objeto para outro serviço — e o snapshot de preço (e, no estoque, o `product_name`). `UNIQUE (quote_id, stock_id)` e `UNIQUE (quote_id, service_catalog_id)`: um item não se repete no mesmo orçamento. |
 | V3 | `payments` | Cobrança de uma OS, criada `PENDING` quando chega o `ServiceOrderFinished`. `external_id` é único (identificador no provedor de pagamento, que ainda não está integrado). |
-| V4 | `outbox_events` | Transactional outbox (ADR-0011), mesmo formato usado pelo `ms-ofisy-execution`. Índice parcial em `occurred_at` para os eventos pendentes (`published_at IS NULL`), já que é essa consulta que o publicador agendado roda a cada ciclo. |
+| V4 | `outbox_events` | Transactional outbox (ADR-0011). Índice parcial em `occurred_at` para os eventos pendentes (`published_at IS NULL`), já que é essa consulta que o publicador agendado roda a cada ciclo. |
 | V5 | `processed_events` | Eventos já consumidos (`event_id` é a chave primária). Idempotência do consumo: cada caso de uso grava o `eventId` na mesma transação do seu efeito. |
 | V6 | `payments` | `external_id` passa a aceitar `NULL` (o `UNIQUE` continua valendo; o Postgres aceita vários `NULL`). A cobrança nasce sem `external_id` e `checkout_url` enquanto o provedor de pagamento não estiver integrado. |
 
