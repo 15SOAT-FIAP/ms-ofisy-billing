@@ -46,7 +46,7 @@ security:
   public-paths:
     - /api/v1/quotes/*/approve
     - /api/v1/quotes/*/reprove
-    - /actuator/health
+    - /actuator/health/**
 management:
   endpoints:
     web:
