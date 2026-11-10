@@ -6,7 +6,6 @@ import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.QuoteNotFoundE
 import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.ServiceCatalogNotFoundException;
 import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.StockNotFoundException;
 import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.StockUnavailableException;
-import br.com.ofisy.ms_ofisy_billing.domain.payment.exceptions.InvalidPaymentStatusException;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.exceptions.InvalidQuoteDataException;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.exceptions.InvalidQuoteItemException;
 import br.com.ofisy.ms_ofisy_billing.domain.quote.exceptions.InvalidQuoteStatusException;
@@ -33,7 +32,6 @@ public class GlobalExceptionHandler {
     @ExceptionHandler({
             InvalidQuoteDataException.class,
             InvalidQuoteItemException.class,
-            InvalidPaymentStatusException.class,
             MethodArgumentNotValidException.class,
             HttpMessageNotReadableException.class
     })

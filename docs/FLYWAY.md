@@ -28,7 +28,7 @@ V<numero_da_versao>__<descricao_da_migration>.sql
 Exemplos já existentes:
 
 - `V1__create_quotes_table.sql`
-- `V6__allow_payment_without_external_id.sql`
+- `V4__create_outbox_events_table.sql`
 
 A próxima versão livre está na tabela de migrations do [DATABASE.md](DATABASE.md#tabelas).
 
