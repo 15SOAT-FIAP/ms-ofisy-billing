@@ -6,6 +6,7 @@ CREATE TABLE payments (
     status VARCHAR(30) NOT NULL,
     external_id VARCHAR(255) NOT NULL,
     checkout_url VARCHAR(500),
+    status_detail VARCHAR(255),
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP,
     CONSTRAINT uk_payments_external_id UNIQUE (external_id)
