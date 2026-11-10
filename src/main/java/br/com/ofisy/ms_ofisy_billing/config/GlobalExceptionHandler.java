@@ -65,15 +65,6 @@ public class GlobalExceptionHandler {
         throw ex;
     }
 
-    @ExceptionHandler(Exception.class)
-    public ProblemDetail handleUnexpected(Exception ex, HttpServletRequest request) {
-        log.error("Erro inesperado ao processar {} {}", request.getMethod(), request.getRequestURI(), ex);
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR,
-                "Ocorreu um erro inesperado.");
-        problem.setInstance(java.net.URI.create(request.getRequestURI()));
-        return problem;
-    }
-
     private ProblemDetail problem(HttpStatus status, Exception ex, HttpServletRequest request) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, ex.getMessage());
         problem.setInstance(java.net.URI.create(request.getRequestURI()));
