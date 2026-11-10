@@ -55,7 +55,7 @@ O corpo da mensagem SNS é o envelope inteiro (não só o payload), porque a ass
 | `StockConsumed`          | ms-ofisy-stock | Orçamento `PENDING` → `AWAITING_APPROVAL`; publica `QuoteSentForApproval`                                          |
 | `StockConsumptionFailed` | ms-ofisy-stock | Orçamento → `CANCELLED`; publica `QuoteCancelled` (motivo `STOCK_UNAVAILABLE`)                                     |
 | `StockRefunded`          | ms-ofisy-stock | Orçamento ainda aberto → `CANCELLED`; publica `QuoteCancelled` (motivo `SERVICE_ORDER_CANCELLED`). Sem orçamento, ou já `REPROVED`/`CANCELLED`, é só registrado |
-| `ServiceOrderFinished`   | core           | Cria uma cobrança `PENDING` com o total do orçamento aprovado                                                      |
+| `ServiceOrderFinished`   | core           | Cria a order no Mercado Pago e uma cobrança `PENDING` com o link de pagamento; publica `PaymentCheckoutCreated`    |
 
 O billing só usa o `serviceOrderId` do envelope nesses quatro eventos: o payload é ignorado, o que evita acoplar este ms ao formato escolhido por quem os produz.
 
@@ -89,7 +89,11 @@ O envelope é o mesmo do `StockConsumed`, com `type` e `payload` próprios.
 
 #### `ServiceOrderFinished`
 
-A OS foi finalizada. O billing cria uma cobrança `PENDING` com o total do orçamento, que precisa estar `APPROVED`. A cobrança nasce sem `externalId` nem `checkoutUrl`: a criação no provedor de pagamento fica para a etapa do Mercado Pago. Nenhum evento é publicado de volta.
+A OS foi finalizada. Com o orçamento `APPROVED`, o billing cria uma order no Mercado Pago (Checkout Pro, `POST /v1/orders`) com o total do orçamento e grava uma cobrança `PENDING` com o id da order (`externalId`) e o link de pagamento (`checkoutUrl`). Em seguida publica `PaymentCheckoutCreated`.
+
+A chamada ao Mercado Pago é síncrona e usa o `eventId` como `X-Idempotency-Key`. Se ela falhar, nada é gravado e a mensagem volta para a fila; na retentativa, a mesma chave com o mesmo body devolve a mesma order, sem duplicar a cobrança. A order expira em `mercadopago.expiration-time` (padrão `P3D`). Com `mercadopago.retries-allowed` ligado (padrão), a order é criada com `config.online.retries.allowed = true`: um cartão recusado não encerra a order, e o cliente tenta de novo no mesmo link.
+
+A criação do checkout fica no `CreateCheckoutUseCase`, que recebe a chave de idempotência de quem o chama. Aqui é o `eventId`; o webhook do Mercado Pago vai reaproveitá-lo para gerar um novo link quando uma cobrança falhar.
 
 O envelope é o mesmo do `StockConsumed`, com `type` e `payload` próprios.
 
@@ -105,6 +109,7 @@ Todos saem pelo outbox, descrito em [Publicação de eventos](#publicação-de-e
 | `QuoteApproved`        | Cliente aprova o orçamento (rota pública)                          | ms-ofisy-execution: cria as execuções. core: OS → `AWAITING_EXECUTION`          |
 | `QuoteReproved`        | Cliente reprova o orçamento (rota pública)                         | ms-ofisy-stock: devolve os itens (`StockRefunded`). core: cancela a OS          |
 | `QuoteCancelled`       | Falta de estoque, ou estoque devolvido após o cancelamento da OS   | core: OS → cancelada                                                            |
+| `PaymentCheckoutCreated` | Order criada no Mercado Pago ao finalizar a OS                   | ms-ofisy-notification: envia o link de pagamento ao cliente                     |
 
 Os payloads abaixo são os campos que o billing envia hoje. Quem consome é quem define o que precisa.
 
@@ -237,7 +242,25 @@ Fim da compensação da saga: o core marca a OS como cancelada. O `reason` é `S
 }
 ```
 
-`PaymentConfirmed` também faz parte do desenho (billing → core: "libera para entrega" e cria notificação), mas depende da confirmação do provedor de pagamento (Mercado Pago) e fica para a etapa da integração. `StockLow` e `QuoteStockUnvailable` aparecem no desenho, mas não são consumidos nem publicados aqui.
+#### `PaymentCheckoutCreated`
+
+A cobrança da OS foi criada no Mercado Pago. O `checkoutUrl` é o link do Checkout Pro, onde o cliente paga com Pix, cartão ou boleto.
+
+```json
+{
+  "eventId": "4b5c6d7e-8f9a-4b0c-9d1e-2f3a4b5c6d7e",
+  "type": "PaymentCheckoutCreated",
+  "serviceOrderId": "c3d4e5f6-a7b8-9012-cdef-123456780001",
+  "occurredAt": "2026-11-02T15:00:00.123456Z",
+  "payload": {
+    "paymentId": "8e9f0a1b-2c3d-4e5f-8a6b-7c8d9e0f1a2b",
+    "checkoutUrl": "https://www.mercadopago.com.br/checkout/v1/redirect?order_id=ORDTST01KS5AJ6HTK2HRQ3XJ3C2JCKP9",
+    "amount": 250.00
+  }
+}
+```
+
+`PaymentConfirmed` e `PaymentFailed` também fazem parte do desenho (billing → core: libera a OS para entrega ou avisa o cliente), mas dependem do webhook do Mercado Pago e ficam para a próxima etapa da integração. `StockLow` e `QuoteStockUnvailable` aparecem no desenho, mas não são consumidos nem publicados aqui.
 
 ---
 
@@ -295,7 +318,7 @@ As mensagens são publicadas com `message-group-id = serviceOrderId`. Assim, eve
 
 A entrega do SQS é *at-least-once*, então um mesmo evento pode chegar mais de uma vez (por exemplo, reentrega fora da janela de deduplicação de 5 minutos da fila FIFO). Todo evento consumido é registrado em **`processed_events`** na mesma transação do seu efeito. Se o `eventId` já existir, o evento é descartado sem efeito. O registro vale também para os eventos ignorados por regra de negócio (por exemplo, um `StockConsumed` de um orçamento já cancelado), para que uma reentrega não os reavalie.
 
-No `ServiceOrderFinished`, a proteção tem mais uma camada: antes de criar a cobrança, o caso de uso verifica se a OS já tem uma que não esteja `REJECTED` e, se tiver, só registra o evento.
+No `ServiceOrderFinished`, a proteção tem mais uma camada: antes de criar a cobrança, o caso de uso verifica se a OS já tem uma `PENDING` ou `PAID` e, se tiver, só registra o evento.
 
 ### Falhas e DLQ
 
@@ -378,7 +401,7 @@ Com o ambiente no ar (`docker compose up -d localstack` + `./mvnw spring-boot:ru
 | `make event-stock-consumed SERVICE_ORDER_ID=<uuid>`            | Publica um `StockConsumed`: o orçamento vai a `AWAITING_APPROVAL`                  |
 | `make event-stock-consumption-failed SERVICE_ORDER_ID=<uuid>`  | Publica um `StockConsumptionFailed`: o orçamento vai a `CANCELLED`                 |
 | `make event-stock-refunded SERVICE_ORDER_ID=<uuid>`            | Publica um `StockRefunded`: cancela o orçamento se ainda estiver aberto            |
-| `make event-service-order-finished SERVICE_ORDER_ID=<uuid>`    | Publica um `ServiceOrderFinished`: cria a cobrança (o orçamento precisa estar `APPROVED`) |
+| `make event-service-order-finished SERVICE_ORDER_ID=<uuid>`    | Publica um `ServiceOrderFinished`: cria a cobrança no Mercado Pago (o orçamento precisa estar `APPROVED` e o `MERCADOPAGO_ACCESS_TOKEN` configurado) |
 | `make event-ignored`                                           | Publica um `StockLow`, que a `FilterPolicy` descarta antes de chegar na fila       |
 | `make event-invalid`                                           | Envia uma mensagem inválida direto na fila, que vai para a DLQ após 5 tentativas (~2,5 min) |
 | `make queue-status`                                            | Mostra as mensagens visíveis e em processamento na fila e na DLQ                   |
@@ -424,6 +447,7 @@ sequenceDiagram
     participant S as ms-ofisy-stock
     participant C as core
     participant E as ms-ofisy-execution
+    participant N as ms-ofisy-notification
 
     API->>B: cria o orçamento (PENDING)
     B->>S: QuoteCreated
@@ -434,7 +458,8 @@ sequenceDiagram
     B->>E: QuoteApproved (cria as execuções)
     E->>C: ExecutionStarted / AllExecutionsCompleted
     C->>B: ServiceOrderFinished
-    Note over B: cria a cobrança PENDING (o pagamento vem na etapa do Mercado Pago)
+    Note over B: cria a order no Mercado Pago e a cobrança PENDING
+    B->>N: PaymentCheckoutCreated (link de pagamento ao cliente)
 ```
 
 ### Compensações da saga

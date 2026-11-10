@@ -1,6 +1,6 @@
 # ms-ofisy-billing
 
-FIAP 15SOAT - Tech Challenge - Grupo 81
+FIAP 15SOAT - Tech Challenge - Grupo 83
 
 Microsserviço responsável pelo **orçamento (quote) de uma ordem de serviço** da Ofisy: criação, edição, aprovação, reprovação e cancelamento, além da cobrança (`Payment`) gerada quando a OS é finalizada. Ele publica o que acontece com o orçamento (`QuoteCreated`, `QuoteUpdated`, `QuoteSentForApproval`, `QuoteApproved`, `QuoteReproved`, `QuoteCancelled`) e reage aos eventos do estoque e do core (`StockConsumed`, `StockConsumptionFailed`, `StockRefunded`, `ServiceOrderFinished`).
 
@@ -10,7 +10,7 @@ O contexto de orçamento foi extraído do core da Ofisy ([techchallenge-ofisy](h
 - [ADR-0011 - Utilizar SNS e SQS como mensageria](https://github.com/15SOAT-FIAP/techchallenge-ofisy/blob/master/docs/adr/0011-utilizar-sns-e-sqs-como-mensageria.md)
 - [ADR-0012 - Coordenar a saga por coreografia](https://github.com/15SOAT-FIAP/techchallenge-ofisy/blob/master/docs/adr/0012-coordenar-a-saga-por-coreografia.md)
 
-A integração com o Mercado Pago (criar a cobrança no provedor, receber o webhook e publicar o `PaymentConfirmed`) será feita em outra etapa. Hoje a cobrança é criada `PENDING`, sem `externalId`, quando chega o `ServiceOrderFinished`.
+Quando chega o `ServiceOrderFinished`, o ms cria a order no Mercado Pago (Checkout Pro), grava a cobrança `PENDING` com o `externalId` e o link de pagamento e publica o `PaymentCheckoutCreated`. O webhook do Mercado Pago e os eventos `PaymentConfirmed` e `PaymentFailed` ficam para outra etapa.
 
 ---
 

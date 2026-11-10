@@ -31,7 +31,7 @@ Testcontainers subindo um Postgres real e, nos de mensageria, um LocalStack.
     `SwaggerConfigTest` confere o título da API e o esquema Bearer JWT do OpenAPI.
   - `JpaQuoteRepository`/`JpaPaymentRepository`/`JpaProcessedEventRepository`: `@DataJpaTest` +
     Testcontainers Postgres, validando que as migrations do Flyway produzem um schema
-    compatível com as entidades (constraints de unicidade incluídas, e `external_id` nulo).
+    compatível com as entidades (constraints de unicidade incluídas, e `external_id` obrigatório).
   - Consumo de eventos: `BillingEventsListenerTest` (despacho pelo `type`, tipo sem handler,
     falha propagada para a mensagem não ser confirmada, `type` duplicado) e um teste por handler
     (`StockConsumedHandlerTest` etc.) conferindo o comando enviado ao caso de uso.

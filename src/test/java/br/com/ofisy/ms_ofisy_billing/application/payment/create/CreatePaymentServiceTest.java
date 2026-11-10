@@ -1,6 +1,9 @@
 package br.com.ofisy.ms_ofisy_billing.application.payment.create;
 
+import br.com.ofisy.ms_ofisy_billing.application.payment.checkout.CreateCheckoutUseCase;
+import br.com.ofisy.ms_ofisy_billing.application.payment.checkout.CreateCheckoutUseCase.CreateCheckoutCommand;
 import br.com.ofisy.ms_ofisy_billing.application.payment.create.CreatePaymentUseCase.CreatePaymentCommand;
+import br.com.ofisy.ms_ofisy_billing.application.payment.exceptions.PaymentUnavailableException;
 import br.com.ofisy.ms_ofisy_billing.application.quote.exceptions.QuoteNotFoundException;
 import br.com.ofisy.ms_ofisy_billing.domain.payment.Payment;
 import br.com.ofisy.ms_ofisy_billing.domain.payment.PaymentRepository;
@@ -19,6 +22,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
@@ -39,6 +43,8 @@ class CreatePaymentServiceTest {
     private PaymentRepository paymentRepository;
     @Mock
     private ProcessedEventRepository processedEventRepository;
+    @Mock
+    private CreateCheckoutUseCase createCheckoutUseCase;
 
     private CreatePaymentService service;
 
@@ -48,24 +54,22 @@ class CreatePaymentServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new CreatePaymentService(quoteRepository, paymentRepository, processedEventRepository);
+        service = new CreatePaymentService(quoteRepository, paymentRepository, processedEventRepository,
+                createCheckoutUseCase);
     }
 
     @Test
-    void shouldCreateAPendingPaymentWithTheTotalOfTheApprovedQuote() {
-        when(quoteRepository.findByServiceOrderId(serviceOrderId)).thenReturn(List.of(quote(QuoteStatus.APPROVED)));
-        when(paymentRepository.findByServiceOrderId(serviceOrderId)).thenReturn(List.of());
+    void shouldCreateTheCheckoutWithTheQuoteTotalUsingTheEventIdAsIdempotencyKey() {
+        givenAnApprovedQuoteWithPayments();
 
         service.execute(command());
 
-        ArgumentCaptor<Payment> payment = ArgumentCaptor.forClass(Payment.class);
-        verify(paymentRepository).save(payment.capture());
-        assertThat(payment.getValue().getServiceOrderId()).isEqualTo(serviceOrderId);
-        assertThat(payment.getValue().getQuoteId()).isEqualTo(quoteId);
-        assertThat(payment.getValue().getAmount()).isEqualByComparingTo("250.00");
-        assertThat(payment.getValue().getStatus()).isEqualTo(PaymentStatus.PENDING);
-        assertThat(payment.getValue().getExternalId()).isNull();
-        assertThat(payment.getValue().getCheckoutUrl()).isNull();
+        ArgumentCaptor<CreateCheckoutCommand> checkout = ArgumentCaptor.forClass(CreateCheckoutCommand.class);
+        verify(createCheckoutUseCase).execute(checkout.capture());
+        assertThat(checkout.getValue().serviceOrderId()).isEqualTo(serviceOrderId);
+        assertThat(checkout.getValue().quoteId()).isEqualTo(quoteId);
+        assertThat(checkout.getValue().amount()).isEqualByComparingTo("250.00");
+        assertThat(checkout.getValue().idempotencyKey()).isEqualTo(eventId.toString());
 
         ArgumentCaptor<ProcessedEvent> processed = ArgumentCaptor.forClass(ProcessedEvent.class);
         verify(processedEventRepository).save(processed.capture());
@@ -74,26 +78,53 @@ class CreatePaymentServiceTest {
     }
 
     @Test
-    void shouldCreateANewPaymentWhenThePreviousOneWasRejected() {
-        when(quoteRepository.findByServiceOrderId(serviceOrderId)).thenReturn(List.of(quote(QuoteStatus.APPROVED)));
-        when(paymentRepository.findByServiceOrderId(serviceOrderId))
-                .thenReturn(List.of(paymentWithStatus(PaymentStatus.REJECTED)));
+    void shouldCreateANewCheckoutWhenThePreviousOnesFailedOrExpired() {
+        givenAnApprovedQuoteWithPayments(PaymentStatus.FAILED, PaymentStatus.EXPIRED);
 
         service.execute(command());
 
-        verify(paymentRepository).save(any(Payment.class));
+        verify(createCheckoutUseCase).execute(any(CreateCheckoutCommand.class));
+        verify(processedEventRepository).save(any(ProcessedEvent.class));
     }
 
     @Test
-    void shouldNotCreateAnotherPaymentWhenTheServiceOrderAlreadyHasOne() {
-        when(quoteRepository.findByServiceOrderId(serviceOrderId)).thenReturn(List.of(quote(QuoteStatus.APPROVED)));
-        when(paymentRepository.findByServiceOrderId(serviceOrderId))
-                .thenReturn(List.of(paymentWithStatus(PaymentStatus.PENDING)));
+    void shouldNotCreateAnotherCheckoutWhenTheServiceOrderAlreadyHasAPendingOne() {
+        givenAnApprovedQuoteWithPayments(PaymentStatus.PENDING);
 
         service.execute(command());
 
-        verify(paymentRepository, never()).save(any());
+        verifyNoInteractions(createCheckoutUseCase);
         verify(processedEventRepository).save(any(ProcessedEvent.class));
+    }
+
+    @Test
+    void shouldNotCreateAnotherCheckoutWhenAFailedOneWasAlreadyReplacedByAPendingOne() {
+        givenAnApprovedQuoteWithPayments(PaymentStatus.FAILED, PaymentStatus.PENDING);
+
+        service.execute(command());
+
+        verifyNoInteractions(createCheckoutUseCase);
+    }
+
+    @Test
+    void shouldNotCreateAnotherCheckoutWhenTheServiceOrderIsAlreadyPaid() {
+        givenAnApprovedQuoteWithPayments(PaymentStatus.PAID);
+
+        service.execute(command());
+
+        verifyNoInteractions(createCheckoutUseCase);
+        verify(processedEventRepository).save(any(ProcessedEvent.class));
+    }
+
+    @Test
+    void shouldNotMarkTheEventAsProcessedWhenTheCheckoutFails() {
+        givenAnApprovedQuoteWithPayments();
+        when(createCheckoutUseCase.execute(any()))
+                .thenThrow(new PaymentUnavailableException(serviceOrderId, new RuntimeException("timeout")));
+
+        assertThatThrownBy(() -> service.execute(command())).isInstanceOf(PaymentUnavailableException.class);
+
+        verify(processedEventRepository, never()).save(any());
     }
 
     @Test
@@ -102,7 +133,7 @@ class CreatePaymentServiceTest {
 
         service.execute(command());
 
-        verifyNoInteractions(quoteRepository, paymentRepository);
+        verifyNoInteractions(quoteRepository, paymentRepository, createCheckoutUseCase);
         verify(processedEventRepository, never()).save(any());
     }
 
@@ -112,7 +143,7 @@ class CreatePaymentServiceTest {
 
         assertThatThrownBy(() -> service.execute(command())).isInstanceOf(InvalidQuoteStatusException.class);
 
-        verifyNoInteractions(paymentRepository);
+        verifyNoInteractions(paymentRepository, createCheckoutUseCase);
         verify(processedEventRepository, never()).save(any());
     }
 
@@ -122,8 +153,14 @@ class CreatePaymentServiceTest {
 
         assertThatThrownBy(() -> service.execute(command())).isInstanceOf(QuoteNotFoundException.class);
 
-        verifyNoInteractions(paymentRepository);
+        verifyNoInteractions(paymentRepository, createCheckoutUseCase);
         verify(processedEventRepository, never()).save(any());
+    }
+
+    private void givenAnApprovedQuoteWithPayments(PaymentStatus... statuses) {
+        when(quoteRepository.findByServiceOrderId(serviceOrderId)).thenReturn(List.of(quote(QuoteStatus.APPROVED)));
+        when(paymentRepository.findByServiceOrderId(serviceOrderId))
+                .thenReturn(Arrays.stream(statuses).map(this::paymentWithStatus).toList());
     }
 
     private CreatePaymentCommand command() {
@@ -137,6 +174,6 @@ class CreatePaymentServiceTest {
 
     private Payment paymentWithStatus(PaymentStatus status) {
         return Payment.reconstruct(UUID.randomUUID(), serviceOrderId, quoteId, new BigDecimal("250.00"), status,
-                null, null, null, null);
+                "ORD-" + UUID.randomUUID(), null, null, null, null);
     }
 }

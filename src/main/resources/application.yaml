@@ -42,6 +42,11 @@ core:
 stock:
   base-url: ${STOCK_BASE_URL}
   service-token: ${STOCK_SERVICE_TOKEN}
+mercadopago:
+  base-url: https://api.mercadopago.com
+  access-token: ${MERCADOPAGO_ACCESS_TOKEN}
+  expiration-time: P3D
+  retries-allowed: true
 security:
   public-paths:
     - /api/v1/quotes/*/approve
