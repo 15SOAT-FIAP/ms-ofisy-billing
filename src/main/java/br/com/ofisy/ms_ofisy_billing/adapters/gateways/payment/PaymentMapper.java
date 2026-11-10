@@ -16,6 +16,7 @@ public class PaymentMapper {
                 .status(payment.getStatus())
                 .externalId(payment.getExternalId())
                 .checkoutUrl(payment.getCheckoutUrl())
+                .statusDetail(payment.getStatusDetail())
                 .createdAt(payment.getCreatedAt())
                 .updatedAt(payment.getUpdatedAt())
                 .build();
@@ -30,6 +31,7 @@ public class PaymentMapper {
                 entity.getStatus(),
                 entity.getExternalId(),
                 entity.getCheckoutUrl(),
+                entity.getStatusDetail(),
                 entity.getCreatedAt(),
                 entity.getUpdatedAt());
     }
