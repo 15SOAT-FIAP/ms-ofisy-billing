@@ -33,10 +33,12 @@ public class PaymentEntity {
     @Enumerated(EnumType.STRING)
     private PaymentStatus status;
 
-    @Column(unique = true)
+    @Column(nullable = false, unique = true)
     private String externalId;
 
     private String checkoutUrl;
+
+    private String statusDetail;
 
     @Column(nullable = false)
     private LocalDateTime createdAt;
