@@ -1,56 +1,84 @@
 package br.com.ofisy.ms_ofisy_billing.domain.payment;
 
-import br.com.ofisy.ms_ofisy_billing.domain.payment.exceptions.InvalidPaymentStatusException;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.math.BigDecimal;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class PaymentTest {
 
     @Test
     void shouldCreateWithPendingStatus() {
-        Payment payment = Payment.create(UUID.randomUUID(), UUID.randomUUID(), new BigDecimal("300.00"),
-                "ofisy-os-abc", "https://mp.example.com/checkout");
+        Payment payment = pendingPayment();
 
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
-        assertThat(payment.getExternalId()).isEqualTo("ofisy-os-abc");
+        assertThat(payment.getExternalId()).isEqualTo("ORD-123");
+        assertThat(payment.getCheckoutUrl()).isEqualTo("https://mp.example.com/checkout");
+        assertThat(payment.getStatusDetail()).isNull();
     }
 
     @Test
-    void shouldConfirmPendingPayment() {
-        Payment payment = Payment.create(UUID.randomUUID(), UUID.randomUUID(), BigDecimal.TEN, "ext", null);
+    void shouldMarkAPendingPaymentAsPaid() {
+        Payment payment = pendingPayment();
 
-        payment.confirm();
-
-        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.CONFIRMED);
+        assertThat(payment.markPaid()).isTrue();
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PAID);
     }
 
     @Test
-    void shouldNotConfirmAnAlreadyConfirmedPayment() {
-        Payment payment = Payment.create(UUID.randomUUID(), UUID.randomUUID(), BigDecimal.TEN, "ext", null);
-        payment.confirm();
+    void shouldMarkAPendingPaymentAsFailedKeepingTheDetail() {
+        Payment payment = pendingPayment();
 
-        assertThatThrownBy(payment::confirm).isInstanceOf(InvalidPaymentStatusException.class);
+        assertThat(payment.markFailed("rejected_by_issuer")).isTrue();
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.FAILED);
+        assertThat(payment.getStatusDetail()).isEqualTo("rejected_by_issuer");
     }
 
     @Test
-    void shouldRejectPendingPayment() {
-        Payment payment = Payment.create(UUID.randomUUID(), UUID.randomUUID(), BigDecimal.TEN, "ext", null);
+    void shouldMarkAPendingPaymentAsExpiredKeepingTheDetail() {
+        Payment payment = pendingPayment();
 
-        payment.reject();
+        assertThat(payment.markExpired("expired")).isTrue();
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.EXPIRED);
+        assertThat(payment.getStatusDetail()).isEqualTo("expired");
+    }
 
-        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REJECTED);
+    @ParameterizedTest
+    @EnumSource(value = PaymentStatus.class, names = {"PAID", "FAILED", "EXPIRED"})
+    void shouldIgnoreATransitionWhenThePaymentIsNoLongerPending(PaymentStatus status) {
+        Payment payment = Payment.reconstruct(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                BigDecimal.TEN, status, "ORD-123", null, "previous_detail", null, null);
+
+        assertThat(payment.markPaid()).isFalse();
+        assertThat(payment.markFailed("rejected_by_issuer")).isFalse();
+        assertThat(payment.markExpired("expired")).isFalse();
+        assertThat(payment.getStatus()).isEqualTo(status);
+        assertThat(payment.getStatusDetail()).isEqualTo("previous_detail");
+        assertThat(payment.getUpdatedAt()).isNull();
     }
 
     @Test
-    void shouldNotRejectAConfirmedPayment() {
-        Payment payment = Payment.create(UUID.randomUUID(), UUID.randomUUID(), BigDecimal.TEN, "ext", null);
-        payment.confirm();
+    void shouldBlockANewChargeOnlyWhilePendingOrPaid() {
+        Payment pending = pendingPayment();
+        Payment paid = pendingPayment();
+        paid.markPaid();
+        Payment failed = pendingPayment();
+        failed.markFailed("rejected_by_issuer");
+        Payment expired = pendingPayment();
+        expired.markExpired("expired");
 
-        assertThatThrownBy(payment::reject).isInstanceOf(InvalidPaymentStatusException.class);
+        assertThat(pending.isPendingOrPaid()).isTrue();
+        assertThat(paid.isPendingOrPaid()).isTrue();
+        assertThat(failed.isPendingOrPaid()).isFalse();
+        assertThat(expired.isPendingOrPaid()).isFalse();
+    }
+
+    private Payment pendingPayment() {
+        return Payment.create(UUID.randomUUID(), UUID.randomUUID(), new BigDecimal("300.00"),
+                "ORD-123", "https://mp.example.com/checkout");
     }
 }
