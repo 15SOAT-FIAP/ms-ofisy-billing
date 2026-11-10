@@ -41,7 +41,7 @@ db-outbox:
 		-c "SELECT event_id, event_type, service_order_id, occurred_at, published_at FROM outbox_events ORDER BY occurred_at DESC LIMIT 20;"
 
 events-peek:
-	aws --endpoint-url=http://localhost:4566 --region us-east-1 sqs receive-message \
+	$(AWSLOCAL) sqs receive-message \
 		--queue-url http://localhost:4566/000000000000/ofisy-billing-events-inspect.fifo \
 		--max-number-of-messages 10 --attribute-names All --message-attribute-names All
 
@@ -60,7 +60,7 @@ event-stock-refunded: ## StockRefunded (ms-ofisy-stock): cancela o orçamento se
 	@LOCALSTACK_CONTAINER=$(LOCALSTACK_CONTAINER) EVENT_ID=$(EVENT_ID) SERVICE_ORDER_ID=$(SERVICE_ORDER_ID) \
 	TOPIC=ofisy-stock-events.fifo TYPE=StockRefunded scripts/publish-event.sh
 
-event-service-order-finished: ## ServiceOrderFinished (core): cria a cobrança PENDING (exige orçamento APPROVED)
+event-service-order-finished: ## ServiceOrderFinished (core): cria a cobrança no Mercado Pago (exige orçamento APPROVED)
 	@test -n "$(SERVICE_ORDER_ID)" || (echo "Informe SERVICE_ORDER_ID=<uuid>" && exit 1)
 	@LOCALSTACK_CONTAINER=$(LOCALSTACK_CONTAINER) EVENT_ID=$(EVENT_ID) SERVICE_ORDER_ID=$(SERVICE_ORDER_ID) \
 	TOPIC=ofisy-service-order-events.fifo TYPE=ServiceOrderFinished scripts/publish-event.sh
@@ -102,7 +102,7 @@ db-quotes: ## Orçamento da OS (SERVICE_ORDER_ID obrigatório)
 
 db-payments: ## Cobranças da OS (SERVICE_ORDER_ID obrigatório)
 	@test -n "$(SERVICE_ORDER_ID)" || (echo "Informe SERVICE_ORDER_ID=<uuid>" && exit 1)
-	@$(PSQL) -c "SELECT id, quote_id, amount, status, external_id, created_at FROM payments WHERE service_order_id = '$(SERVICE_ORDER_ID)';"
+	@$(PSQL) -c "SELECT id, quote_id, amount, status, status_detail, external_id, checkout_url, created_at FROM payments WHERE service_order_id = '$(SERVICE_ORDER_ID)';"
 
 db-processed-events: ## Últimos eventos consumidos
 	@$(PSQL) -c "SELECT * FROM processed_events ORDER BY processed_at DESC LIMIT 10;"
