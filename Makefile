@@ -1,4 +1,4 @@
-.PHONY: up down logs build test verify psql db-outbox events-peek clean \
+.PHONY: up down logs build test verify token psql db-outbox events-peek clean \
 	event-stock-consumed event-stock-consumption-failed event-stock-refunded event-service-order-finished \
 	event-ignored event-invalid queue-status dlq-peek dlq-redrive dlq-purge \
 	db-quotes db-payments db-processed-events
@@ -28,6 +28,9 @@ test:
 
 verify:
 	./mvnw verify
+
+token:
+	@ROLE=$(ROLE) EMAIL=$(EMAIL) scripts/generate-token.sh
 
 psql:
 	docker compose exec postgres psql -U $${POSTGRES_USER:-admin_db} -d $${POSTGRES_DB:-ms_ofisy_billing_db}
