@@ -13,4 +13,5 @@ public class MercadoPagoProperties {
     private String accessToken;
     private String expirationTime;
     private boolean retriesAllowed;
+    private String webhookSecret;
 }
