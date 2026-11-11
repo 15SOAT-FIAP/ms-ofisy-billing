@@ -303,7 +303,7 @@ A cobrança não foi paga. O `reason` é `FAILED` (pagamento recusado; logo em s
 
 ## Webhook do Mercado Pago
 
-A confirmação do pagamento não chega pela fila: o Mercado Pago chama `POST /api/v1/webhooks/mercado-pago` a cada mudança de status de uma order. A URL é cadastrada no painel da aplicação (Configuração de Webhooks, evento **Order**).
+A confirmação do pagamento não chega pela fila: o Mercado Pago chama `POST /api/v1/webhooks/mercado-pago` a cada mudança de status de uma order. A URL é cadastrada no painel da aplicação (Configuração de Webhooks, evento **Order**). A rota não exige JWT: ela está em `security.public-paths`, e a autenticação é a assinatura do próprio Mercado Pago.
 
 | Passo | O que acontece |
 |-------|----------------|
