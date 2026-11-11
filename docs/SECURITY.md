@@ -46,6 +46,7 @@ As regras de equipe ficam no `@PreAuthorize` de cada método dos controllers.
 Configuradas em `security.public-paths` (`application.yaml`):
 
 - `/api/v1/quotes/*/approve` e `/api/v1/quotes/*/reprove`
+- `/swagger-ui/**`, `/swagger-ui.html` e `/v3/api-docs/**`
 - `/actuator/health`, usado para checar a saúde da aplicação
 
 ### Respostas de erro
@@ -84,3 +85,5 @@ curl -H "Authorization: Bearer $TOKEN" "localhost:8083/api/v1/quotes?serviceOrde
 ```
 
 Com `ROLE=STOCKMAN`, as rotas de equipe respondem 403.
+
+No Swagger UI (`http://localhost:8083/swagger-ui.html`), use o botão **Authorize** e cole o token. As rotas de aprovar e reprovar aparecem sem cadeado, porque são públicas.

@@ -22,7 +22,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/quotes")
 @RequiredArgsConstructor
-public class QuoteController {
+public class QuoteController implements QuoteApi {
 
     private final CreateQuoteUseCase createQuoteUseCase;
     private final UpdateQuoteUseCase updateQuoteUseCase;

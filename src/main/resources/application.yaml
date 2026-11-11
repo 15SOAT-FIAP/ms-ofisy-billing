@@ -51,6 +51,9 @@ security:
   public-paths:
     - /api/v1/quotes/*/approve
     - /api/v1/quotes/*/reprove
+    - /swagger-ui/**
+    - /swagger-ui.html
+    - /v3/api-docs/**
     - /actuator/health/**
 management:
   endpoints:
