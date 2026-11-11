@@ -1,7 +1,7 @@
 .PHONY: up down logs build test verify token psql db-outbox events-peek clean \
 	event-stock-consumed event-stock-consumption-failed event-stock-refunded event-service-order-finished \
 	event-ignored event-invalid queue-status dlq-peek dlq-redrive dlq-purge \
-	db-quotes db-payments db-processed-events
+	db-quotes db-payments db-processed-events db-seed-approved-quote webhook-mercado-pago
 
 LOCALSTACK_CONTAINER ?= ms-ofisy-billing-localstack
 AWSLOCAL := docker exec $(LOCALSTACK_CONTAINER) awslocal
@@ -65,6 +65,10 @@ event-service-order-finished: ## ServiceOrderFinished (core): cria a cobrança n
 	@LOCALSTACK_CONTAINER=$(LOCALSTACK_CONTAINER) EVENT_ID=$(EVENT_ID) SERVICE_ORDER_ID=$(SERVICE_ORDER_ID) \
 	TOPIC=ofisy-service-order-events.fifo TYPE=ServiceOrderFinished scripts/publish-event.sh
 
+webhook-mercado-pago: ## Notificação assinada do Mercado Pago para o webhook local (ORDER_ID obrigatório; APP_URL e SIGNATURE opcionais)
+	@test -n "$(ORDER_ID)" || (echo "Informe ORDER_ID=<id da order, ex. ORDTST...>" && exit 1)
+	@ORDER_ID=$(ORDER_ID) APP_URL=$(APP_URL) SIGNATURE=$(SIGNATURE) bash scripts/send-mp-webhook.sh
+
 event-ignored: ## StockLow no tópico de estoque, que o filtro da assinatura descarta antes da fila
 	@LOCALSTACK_CONTAINER=$(LOCALSTACK_CONTAINER) TOPIC=ofisy-stock-events.fifo TYPE=StockLow scripts/publish-event.sh
 
@@ -103,6 +107,12 @@ db-quotes: ## Orçamento da OS (SERVICE_ORDER_ID obrigatório)
 db-payments: ## Cobranças da OS (SERVICE_ORDER_ID obrigatório)
 	@test -n "$(SERVICE_ORDER_ID)" || (echo "Informe SERVICE_ORDER_ID=<uuid>" && exit 1)
 	@$(PSQL) -c "SELECT id, quote_id, amount, status, status_detail, external_id, checkout_url, created_at FROM payments WHERE service_order_id = '$(SERVICE_ORDER_ID)';"
+
+db-seed-approved-quote: ## Orçamento APPROVED para uma OS (SERVICE_ORDER_ID e TOTAL opcionais, padrão 250.00)
+	@so=$(or $(SERVICE_ORDER_ID),$$(uuidgen | tr 'A-Z' 'a-z')); \
+	$(PSQL) -q -c "INSERT INTO quotes (id, service_order_id, status, total_price, created_at, updated_at) VALUES (gen_random_uuid(), '$$so', 'APPROVED', $(or $(TOTAL),250.00), now(), now());" && \
+	echo "Orçamento APPROVED criado para a OS $$so" && \
+	echo "Próximo passo: make event-service-order-finished SERVICE_ORDER_ID=$$so"
 
 db-processed-events: ## Últimos eventos consumidos
 	@$(PSQL) -c "SELECT * FROM processed_events ORDER BY processed_at DESC LIMIT 10;"

@@ -33,6 +33,11 @@ public class PaymentRepositoryImpl implements PaymentRepository {
     }
 
     @Override
+    public Optional<Payment> findByExternalIdForUpdate(String externalId) {
+        return jpaPaymentRepository.findWithLockByExternalId(externalId).map(PaymentMapper::toDomain);
+    }
+
+    @Override
     public List<Payment> findByServiceOrderId(UUID serviceOrderId) {
         return jpaPaymentRepository.findByServiceOrderId(serviceOrderId).stream()
                 .map(PaymentMapper::toDomain)

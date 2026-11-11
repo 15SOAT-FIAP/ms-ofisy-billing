@@ -3,10 +3,13 @@ package br.com.ofisy.ms_ofisy_billing.adapters.gateways.mercadopago;
 import br.com.ofisy.ms_ofisy_billing.application.payment.exceptions.PaymentUnavailableException;
 import br.com.ofisy.ms_ofisy_billing.application.ports.PaymentClient.PaymentOrderRequest;
 import br.com.ofisy.ms_ofisy_billing.application.ports.PaymentClient.PaymentOrderResponse;
+import br.com.ofisy.ms_ofisy_billing.application.ports.PaymentClient.PaymentOrderStatusResponse;
 import br.com.ofisy.ms_ofisy_billing.config.MercadoPagoProperties;
+import br.com.ofisy.ms_ofisy_billing.domain.payment.PaymentStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.HttpMethod;
@@ -153,6 +156,53 @@ class MercadoPagoClientImplTest {
 
         assertThatThrownBy(() -> client.createOrder(request(BigDecimal.TEN)))
                 .isInstanceOf(PaymentUnavailableException.class);
+        server.verify();
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "processed, accredited, PAID",
+            "processed, partially_refunded, PAID",
+            "failed, rejected_by_issuer, FAILED",
+            "failed, expired, EXPIRED",
+            "canceled, canceled, EXPIRED",
+            "canceled, expired, EXPIRED",
+            "created, created, PENDING",
+            "processing, in_process, PENDING",
+            "action_required, waiting_payment, PENDING",
+            "action_required, waiting_retry, PENDING",
+            "refunded, refunded, PENDING",
+            "charged_back, in_process, PENDING"
+    })
+    void shouldTranslateTheOrderStatusToThePaymentStatus(String status, String statusDetail, PaymentStatus expected) {
+        server.expect(requestTo(BASE_URL + "/v1/orders/" + ORDER_ID))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("""
+                        {"id": "%s", "status": "%s", "status_detail": "%s", "total_amount": "250.00"}
+                        """.formatted(ORDER_ID, status, statusDetail), MediaType.APPLICATION_JSON));
+
+        PaymentOrderStatusResponse response = client.getOrder(ORDER_ID);
+
+        assertThat(response.status()).isEqualTo(expected);
+        assertThat(response.statusDetail()).isEqualTo(statusDetail);
+        server.verify();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = HttpStatus.class, names = {"NOT_FOUND", "UNAUTHORIZED", "INTERNAL_SERVER_ERROR"})
+    void shouldFailWhenTheOrderCannotBeQueried(HttpStatus status) {
+        server.expect(requestTo(BASE_URL + "/v1/orders/" + ORDER_ID)).andRespond(withStatus(status));
+
+        assertThatThrownBy(() -> client.getOrder(ORDER_ID)).isInstanceOf(PaymentUnavailableException.class);
+        server.verify();
+    }
+
+    @Test
+    void shouldFailWhenTheQueriedOrderHasNoStatus() {
+        server.expect(requestTo(BASE_URL + "/v1/orders/" + ORDER_ID))
+                .andRespond(withSuccess("{\"id\": \"%s\"}".formatted(ORDER_ID), MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> client.getOrder(ORDER_ID)).isInstanceOf(PaymentUnavailableException.class);
         server.verify();
     }
 
