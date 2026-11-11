@@ -2,6 +2,7 @@ package br.com.ofisy.ms_ofisy_billing.adapters.controllers.webhook;
 
 import br.com.ofisy.ms_ofisy_billing.application.payment.exceptions.PaymentUnavailableException;
 import br.com.ofisy.ms_ofisy_billing.application.payment.sync.SyncPaymentUseCase;
+import br.com.ofisy.ms_ofisy_billing.shared.jwt.JwtService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -28,6 +29,8 @@ class MercadoPagoWebhookControllerTest {
     @Autowired
     private MockMvc mockMvc;
 
+    @MockitoBean
+    private JwtService jwtService;
     @MockitoBean
     private MercadoPagoSignatureValidator signatureValidator;
     @MockitoBean
