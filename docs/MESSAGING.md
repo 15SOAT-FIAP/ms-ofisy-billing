@@ -93,7 +93,7 @@ A OS foi finalizada. Com o orçamento `APPROVED`, o billing cria uma order no Me
 
 A chamada ao Mercado Pago é síncrona e usa o `eventId` como `X-Idempotency-Key`. Se ela falhar, nada é gravado e a mensagem volta para a fila; na retentativa, a mesma chave com o mesmo body devolve a mesma order, sem duplicar a cobrança. A order expira em `mercadopago.expiration-time` (padrão `P3D`). Com `mercadopago.retries-allowed` ligado (padrão), a order é criada com `config.online.retries.allowed = true`: um cartão recusado não encerra a order, e o cliente tenta de novo no mesmo link.
 
-A criação do checkout fica no `CreateCheckoutUseCase`, que recebe a chave de idempotência de quem o chama. Aqui é o `eventId`; o webhook do Mercado Pago vai reaproveitá-lo para gerar um novo link quando uma cobrança falhar.
+A criação do checkout fica no `CreateCheckoutUseCase`, que recebe a chave de idempotência de quem o chama. Aqui é o `eventId`; o webhook do Mercado Pago usa o mesmo caso de uso, com o `id` da cobrança que falhou como chave, para gerar um novo link (ver [Webhook do Mercado Pago](#webhook-do-mercado-pago)).
 
 O envelope é o mesmo do `StockConsumed`, com `type` e `payload` próprios.
 
@@ -109,7 +109,9 @@ Todos saem pelo outbox, descrito em [Publicação de eventos](#publicação-de-e
 | `QuoteApproved`        | Cliente aprova o orçamento (rota pública)                          | ms-ofisy-execution: cria as execuções. core: OS → `AWAITING_EXECUTION`          |
 | `QuoteReproved`        | Cliente reprova o orçamento (rota pública)                         | ms-ofisy-stock: devolve os itens (`StockRefunded`). core: cancela a OS          |
 | `QuoteCancelled`       | Falta de estoque, ou estoque devolvido após o cancelamento da OS   | core: OS → cancelada                                                            |
-| `PaymentCheckoutCreated` | Order criada no Mercado Pago ao finalizar a OS                   | ms-ofisy-notification: envia o link de pagamento ao cliente                     |
+| `PaymentCheckoutCreated` | Order criada no Mercado Pago ao finalizar a OS, ou um novo link depois de uma cobrança `FAILED` | ms-ofisy-notification: envia o link de pagamento ao cliente |
+| `PaymentConfirmed`     | Webhook: order `processed`, cobrança `PAID`                        | core: libera a OS para entrega. ms-ofisy-notification: confirma o pagamento ao cliente |
+| `PaymentFailed`        | Webhook: order recusada (`FAILED`) ou expirada (`EXPIRED`)         | ms-ofisy-notification: avisa o cliente                                          |
 
 Os payloads abaixo são os campos que o billing envia hoje. Quem consome é quem define o que precisa.
 
@@ -260,7 +262,58 @@ A cobrança da OS foi criada no Mercado Pago. O `checkoutUrl` é o link do Check
 }
 ```
 
-`PaymentConfirmed` e `PaymentFailed` também fazem parte do desenho (billing → core: libera a OS para entrega ou avisa o cliente), mas dependem do webhook do Mercado Pago e ficam para a próxima etapa da integração. `StockLow` e `QuoteStockUnvailable` aparecem no desenho, mas não são consumidos nem publicados aqui.
+#### `PaymentConfirmed`
+
+O Mercado Pago confirmou o pagamento (order `processed`) e a cobrança foi para `PAID`. O core libera a OS para entrega e o ms-ofisy-notification avisa o cliente de que o pagamento foi recebido.
+
+```json
+{
+  "eventId": "6c7d8e9f-0a1b-4c2d-8e3f-4a5b6c7d8e9f",
+  "type": "PaymentConfirmed",
+  "serviceOrderId": "c3d4e5f6-a7b8-9012-cdef-123456780001",
+  "occurredAt": "2026-11-02T15:10:00.123456Z",
+  "payload": {
+    "paymentId": "8e9f0a1b-2c3d-4e5f-8a6b-7c8d9e0f1a2b",
+    "amount": 250.00
+  }
+}
+```
+
+#### `PaymentFailed`
+
+A cobrança não foi paga. O `reason` é `FAILED` (pagamento recusado; logo em seguida sai um `PaymentCheckoutCreated` com um novo link) ou `EXPIRED` (a order expirou; a cobrança se encerra sem novo link). O `statusDetail` é o `status_detail` da order no Mercado Pago, por exemplo `rejected_by_issuer`, `insufficient_amount` ou `expired`.
+
+```json
+{
+  "eventId": "7d8e9f0a-1b2c-4d3e-9f4a-5b6c7d8e9f0a",
+  "type": "PaymentFailed",
+  "serviceOrderId": "c3d4e5f6-a7b8-9012-cdef-123456780001",
+  "occurredAt": "2026-11-02T15:10:00.123456Z",
+  "payload": {
+    "paymentId": "8e9f0a1b-2c3d-4e5f-8a6b-7c8d9e0f1a2b",
+    "reason": "FAILED",
+    "statusDetail": "rejected_by_issuer"
+  }
+}
+```
+
+`StockLow` e `QuoteStockUnvailable` aparecem no desenho, mas não são consumidos nem publicados aqui.
+
+---
+
+## Webhook do Mercado Pago
+
+A confirmação do pagamento não chega pela fila: o Mercado Pago chama `POST /api/v1/webhooks/mercado-pago` a cada mudança de status de uma order. A URL é cadastrada no painel da aplicação (Configuração de Webhooks, evento **Order**).
+
+| Passo | O que acontece |
+|-------|----------------|
+| 1 | O `MercadoPagoSignatureValidator` valida o `x-signature` (HMAC-SHA256 do manifest `id:{data.id em minúsculas};request-id:{x-request-id};ts:{ts};` com `mercadopago.webhook-secret`). Inválido → `401` |
+| 2 | Sem `data.id` nos query params → `200`, sem efeito |
+| 3 | O `SyncPaymentService` trava a cobrança pelo `externalId` (`SELECT ... FOR UPDATE`) e consulta `GET /v1/orders/{id}`: o corpo da notificação não é usado |
+| 4 | O status da order vira o status da cobrança (`status_detail = expired` vem antes do `status`): `processed` → `PAID` + `PaymentConfirmed`; `failed` → `FAILED` + `PaymentFailed` + novo checkout; `canceled` ou `expired` → `EXPIRED` + `PaymentFailed`; os demais → sem efeito |
+| 5 | Responde `200`. Qualquer exceção (Mercado Pago fora, falha no novo checkout) desfaz a transação e responde `500`; o Mercado Pago reenvia a notificação depois de 15 min, 30 min, 6 h, 48 h e 96 h |
+
+As transições só partem de `PENDING`, então uma notificação repetida não gera evento de novo. Uma order que não é de nenhuma cobrança deste ms é só registrada em log. O novo checkout usa o `id` da cobrança que falhou como chave de idempotência, então um reenvio do webhook devolve a mesma order em vez de criar outra.
 
 ---
 
@@ -402,6 +455,8 @@ Com o ambiente no ar (`docker compose up -d localstack` + `./mvnw spring-boot:ru
 | `make event-stock-consumption-failed SERVICE_ORDER_ID=<uuid>`  | Publica um `StockConsumptionFailed`: o orçamento vai a `CANCELLED`                 |
 | `make event-stock-refunded SERVICE_ORDER_ID=<uuid>`            | Publica um `StockRefunded`: cancela o orçamento se ainda estiver aberto            |
 | `make event-service-order-finished SERVICE_ORDER_ID=<uuid>`    | Publica um `ServiceOrderFinished`: cria a cobrança no Mercado Pago (o orçamento precisa estar `APPROVED` e o `MERCADOPAGO_ACCESS_TOKEN` configurado) |
+| `make db-seed-approved-quote`                                  | Cria um orçamento `APPROVED` direto no banco e imprime o `SERVICE_ORDER_ID` (aceita `SERVICE_ORDER_ID` e `TOTAL`, padrão `250.00`) |
+| `make webhook-mercado-pago ORDER_ID=<ORD...>`                  | Envia ao webhook local uma notificação assinada como o Mercado Pago assina (`MERCADOPAGO_WEBHOOK_SECRET` do `.env`). O billing consulta a order de verdade no sandbox. Aceita `APP_URL` (padrão `http://localhost:8080`) e `SIGNATURE` (sobrescreve o header, para testar o 401) |
 | `make event-ignored`                                           | Publica um `StockLow`, que a `FilterPolicy` descarta antes de chegar na fila       |
 | `make event-invalid`                                           | Envia uma mensagem inválida direto na fila, que vai para a DLQ após 5 tentativas (~2,5 min) |
 | `make queue-status`                                            | Mostra as mensagens visíveis e em processamento na fila e na DLQ                   |
@@ -427,6 +482,34 @@ make db-quotes SERVICE_ORDER_ID=<os>   # continua AWAITING_APPROVAL
 make db-outbox                         # um único QuoteSentForApproval
 make db-processed-events               # o eventId aparece uma única vez
 ```
+
+### Exemplo: cobrança e pagamento pelo Mercado Pago
+
+Precisa de `MERCADOPAGO_ACCESS_TOKEN` (de teste) e `MERCADOPAGO_WEBHOOK_SECRET` no `.env`. O webhook é chamado localmente pelo `make webhook-mercado-pago`, sem URL pública.
+
+No checkout, o pagamento precisa ser feito logado com uma **conta de comprador de teste** (painel da aplicação → Contas de teste → Criar conta, tipo Comprador): escolha "Com sua conta Mercado Pago", entre com essa conta e só então pague com o cartão de teste. Como convidado ou com uma conta real, o Mercado Pago recusa com "Uma das partes com as quais você está tentando efetuar o pagamento é de teste" (erro 145), porque a order foi criada com credencial de teste.
+
+```bash
+make db-seed-approved-quote                          # imprime o SERVICE_ORDER_ID
+make event-service-order-finished SERVICE_ORDER_ID=<os>
+make db-payments SERVICE_ORDER_ID=<os>               # PENDING, com external_id (ORDTST...) e checkout_url
+
+# abrir o checkout_url, entrar com a conta de comprador de teste e pagar com o cartão de teste, titular APRO
+make webhook-mercado-pago ORDER_ID=<external_id>     # HTTP 200
+make db-payments SERVICE_ORDER_ID=<os>               # PAID
+make events-peek                                     # PaymentConfirmed
+make webhook-mercado-pago ORDER_ID=<external_id>     # de novo: 200, nada muda
+```
+
+Variações:
+
+| Cenário | Como provocar | Resultado |
+|---------|---------------|-----------|
+| Pagamento recusado | Subir a app com `MERCADOPAGO_RETRIES_ALLOWED=false`, pagar com o titular `OTHE` e chamar o webhook | Cobrança `FAILED`, `PaymentFailed` e uma nova cobrança `PENDING` com outro link (`PaymentCheckoutCreated`) |
+| Order expirada | Subir a app com `MERCADOPAGO_EXPIRATION_TIME=PT30M`, criar a cobrança, não pagar e chamar o webhook depois do prazo | Cobrança `EXPIRED` e `PaymentFailed`, sem novo link |
+| Assinatura inválida | `make webhook-mercado-pago ORDER_ID=<id> SIGNATURE=invalida` | HTTP 401, nada muda |
+
+A documentação do Mercado Pago não informa a expiração mínima de uma order do Checkout Pro (o Pix aceita de 30 minutos a 30 dias). Se o `PT30M` for recusado na criação, aumente o prazo.
 
 > **Atenção ao `dlq-redrive`:** a mensagem volta com o mesmo *deduplication id*. Se o envio original tiver menos de 5 minutos, a fila FIFO a descarta como duplicada.
 
@@ -460,6 +543,9 @@ sequenceDiagram
     C->>B: ServiceOrderFinished
     Note over B: cria a order no Mercado Pago e a cobrança PENDING
     B->>N: PaymentCheckoutCreated (link de pagamento ao cliente)
+    Note over B: cliente paga, Mercado Pago chama o webhook
+    B->>C: PaymentConfirmed (libera a OS para entrega)
+    B->>N: PaymentConfirmed (confirma o pagamento ao cliente)
 ```
 
 ### Compensações da saga
