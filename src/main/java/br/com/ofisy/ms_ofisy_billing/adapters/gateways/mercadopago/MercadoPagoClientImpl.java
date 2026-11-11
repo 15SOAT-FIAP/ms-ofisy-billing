@@ -5,6 +5,7 @@ import br.com.ofisy.ms_ofisy_billing.adapters.gateways.mercadopago.dto.OrderResp
 import br.com.ofisy.ms_ofisy_billing.application.payment.exceptions.PaymentUnavailableException;
 import br.com.ofisy.ms_ofisy_billing.application.ports.PaymentClient;
 import br.com.ofisy.ms_ofisy_billing.config.MercadoPagoProperties;
+import br.com.ofisy.ms_ofisy_billing.domain.payment.PaymentStatus;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -22,6 +23,10 @@ public class MercadoPagoClientImpl implements PaymentClient {
     private static final String ORDER_TYPE = "online";
     private static final String PROCESSING_MODE = "manual";
     private static final String ITEM_TITLE = "Ordem de serviço ";
+    private static final String STATUS_PROCESSED = "processed";
+    private static final String STATUS_FAILED = "failed";
+    private static final String STATUS_CANCELED = "canceled";
+    private static final String STATUS_DETAIL_EXPIRED = "expired";
 
     private final RestClient mercadoPagoRestClient;
     private final MercadoPagoProperties properties;
@@ -56,6 +61,38 @@ public class MercadoPagoClientImpl implements PaymentClient {
                     new IllegalStateException("Resposta do Mercado Pago sem id ou checkout_url"));
         }
         return new PaymentOrderResponse(response.id(), response.checkoutUrl());
+    }
+
+    @Override
+    public PaymentOrderStatusResponse getOrder(String externalId) {
+        OrderResponse response;
+        try {
+            response = mercadoPagoRestClient.get()
+                    .uri("/v1/orders/{id}", externalId)
+                    .retrieve()
+                    .body(OrderResponse.class);
+        } catch (Exception e) {
+            log.error("Falha ao consultar a order {} no Mercado Pago", externalId, e);
+            throw PaymentUnavailableException.forOrderQuery(externalId, e);
+        }
+
+        if (response == null || response.status() == null) {
+            throw PaymentUnavailableException.forOrderQuery(externalId,
+                    new IllegalStateException("Resposta do Mercado Pago sem status"));
+        }
+        return new PaymentOrderStatusResponse(
+                toPaymentStatus(response.status(), response.statusDetail()), response.statusDetail());
+    }
+
+    private PaymentStatus toPaymentStatus(String status, String statusDetail) {
+        if (STATUS_DETAIL_EXPIRED.equals(statusDetail) || STATUS_CANCELED.equals(status)) {
+            return PaymentStatus.EXPIRED;
+        }
+        return switch (status) {
+            case STATUS_PROCESSED -> PaymentStatus.PAID;
+            case STATUS_FAILED -> PaymentStatus.FAILED;
+            default -> PaymentStatus.PENDING;
+        };
     }
 
     private CreateOrderRequest.Config retriesConfig() {
