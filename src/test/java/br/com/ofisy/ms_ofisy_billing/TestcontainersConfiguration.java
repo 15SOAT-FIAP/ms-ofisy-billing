@@ -41,6 +41,7 @@ public class TestcontainersConfiguration {
             registry.add("core.service-token", () -> "test-token");
             registry.add("stock.base-url", () -> "http://localhost:8082");
             registry.add("stock.service-token", () -> "test-token");
+            registry.add("mercadopago.access-token", () -> "test-token");
         };
     }
 }

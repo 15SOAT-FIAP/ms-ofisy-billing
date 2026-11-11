@@ -1,6 +1,6 @@
 # ms-ofisy-billing
 
-FIAP 15SOAT - Tech Challenge - Grupo 83
+FIAP 15SOAT - Tech Challenge - Grupo 87
 
 Microsserviço responsável pelo **orçamento (quote) de uma ordem de serviço** da Ofisy: criação, edição, aprovação, reprovação e cancelamento, além da cobrança (`Payment`) gerada quando a OS é finalizada. Ele publica o que acontece com o orçamento (`QuoteCreated`, `QuoteUpdated`, `QuoteSentForApproval`, `QuoteApproved`, `QuoteReproved`, `QuoteCancelled`) e reage aos eventos do estoque e do core (`StockConsumed`, `StockConsumptionFailed`, `StockRefunded`, `ServiceOrderFinished`).
 

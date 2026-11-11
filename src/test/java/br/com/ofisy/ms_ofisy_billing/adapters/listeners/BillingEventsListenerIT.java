@@ -7,6 +7,7 @@ import br.com.ofisy.ms_ofisy_billing.adapters.gateways.payment.JpaPaymentReposit
 import br.com.ofisy.ms_ofisy_billing.adapters.gateways.processedevent.JpaProcessedEventRepository;
 import br.com.ofisy.ms_ofisy_billing.adapters.gateways.quote.JpaQuoteRepository;
 import br.com.ofisy.ms_ofisy_billing.adapters.gateways.quote.QuoteEntity;
+import br.com.ofisy.ms_ofisy_billing.application.ports.PaymentClient;
 import br.com.ofisy.ms_ofisy_billing.application.ports.StockClient;
 import br.com.ofisy.ms_ofisy_billing.application.quote.create.CreateQuoteUseCase;
 import br.com.ofisy.ms_ofisy_billing.application.quote.update.UpdateQuoteUseCase;
@@ -33,6 +34,8 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -69,6 +72,9 @@ class BillingEventsListenerIT {
 
     @MockitoBean
     private StockClient stockClient;
+
+    @MockitoBean
+    private PaymentClient paymentClient;
 
     @Value("${ofisy.messaging.queues.billing}")
     private String queueName;
@@ -163,10 +169,12 @@ class BillingEventsListenerIT {
     }
 
     @Test
-    void shouldCreateOnePaymentWhenServiceOrderFinishedIsDeliveredTwice() {
+    void shouldCreateOneCheckoutWhenServiceOrderFinishedIsDeliveredTwice() {
         UUID eventId = UUID.randomUUID();
         UUID serviceOrderId = UUID.randomUUID();
         saveQuote(serviceOrderId, QuoteStatus.APPROVED);
+        when(paymentClient.createOrder(any())).thenReturn(new PaymentClient.PaymentOrderResponse(
+                "ORD-" + serviceOrderId, "https://checkout.test/" + serviceOrderId));
         String body = body(eventId, "ServiceOrderFinished", serviceOrderId);
         String queueUrl = queueUrl();
 
@@ -182,7 +190,12 @@ class BillingEventsListenerIT {
                 .satisfies(payment -> {
                     assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
                     assertThat(payment.getAmount()).isEqualByComparingTo("100.00");
+                    assertThat(payment.getExternalId()).isEqualTo("ORD-" + serviceOrderId);
+                    assertThat(payment.getCheckoutUrl()).isEqualTo("https://checkout.test/" + serviceOrderId);
                 });
+        assertThat(outboxEventsOf(serviceOrderId, "PaymentCheckoutCreated")).hasSize(1);
+        verify(paymentClient, times(1)).createOrder(argThat(request ->
+                request.idempotencyKey().equals(eventId.toString())));
     }
 
     @Test
