@@ -45,6 +45,22 @@ class JpaPaymentRepositoryIT extends PostgresIntegrationTest {
     }
 
     @Test
+    void shouldFindThePaymentByExternalIdWithALock() {
+        String externalId = "ORD-" + UUID.randomUUID();
+        jpaPaymentRepository.saveAndFlush(PaymentEntity.builder()
+                .serviceOrderId(UUID.randomUUID())
+                .quoteId(UUID.randomUUID())
+                .amount(BigDecimal.TEN)
+                .status(PaymentStatus.PENDING)
+                .externalId(externalId)
+                .createdAt(LocalDateTime.now())
+                .build());
+
+        assertThat(jpaPaymentRepository.findWithLockByExternalId(externalId)).isPresent();
+        assertThat(jpaPaymentRepository.findWithLockByExternalId("ORD-unknown")).isEmpty();
+    }
+
+    @Test
     void shouldEnforceUniqueExternalId() {
         String externalId = "ofisy-os-duplicate";
         jpaPaymentRepository.save(PaymentEntity.builder()
