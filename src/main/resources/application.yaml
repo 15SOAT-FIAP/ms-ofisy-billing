@@ -53,6 +53,7 @@ security:
     - /api/v1/quotes/*/approve
     - /api/v1/quotes/*/reprove
     - /actuator/health/**
+    - /api/v1/webhooks/mercado-pago
 management:
   endpoints:
     web:
