@@ -12,6 +12,8 @@ public interface PaymentRepository {
 
     Optional<Payment> findByExternalId(String externalId);
 
+    Optional<Payment> findByExternalIdForUpdate(String externalId);
+
     List<Payment> findByServiceOrderId(UUID serviceOrderId);
 
     boolean existsByServiceOrderIdAndStatus(UUID serviceOrderId, PaymentStatus status);
