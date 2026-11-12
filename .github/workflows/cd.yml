@@ -1,0 +1,199 @@
+name: Deploy Manual na AWS (CD)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag ou commit a ser implantado"
+        required: false
+        default: master
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        default: master
+
+env:
+  AWS_REGION: us-east-1
+  EKS_CLUSTER: ms-ofisy-billing-cluster
+  ECR_REPOSITORY: ms-ofisy-billing-ecr
+  RDS_IDENTIFIER: ms-ofisy-billing-db
+  CORE_SERVICE_NAME: default/ofisy-service
+  STOCK_SERVICE_NAME: default/ms-ofisy-stock-service
+
+jobs:
+  deploy-to-aws:
+    name: Deploy Manual na AWS (Kubernetes EKS)
+    runs-on: ubuntu-latest
+    environment: AWS_ACADEMY
+
+    concurrency:
+      group: deploy-ms-ofisy-billing
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v7
+        with:
+          repository: 15SOAT-FIAP/ms-ofisy-billing
+          ref: ${{ inputs.ref }}
+
+      - name: Configurar Credenciais AWS
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Obter Endereço do RDS (PostgreSQL)
+        run: |
+          aws rds wait db-instance-available --db-instance-identifier "$RDS_IDENTIFIER"
+          RDS_ENDPOINT=$(aws rds describe-db-instances --db-instance-identifier "$RDS_IDENTIFIER" --query "DBInstances[0].Endpoint.Address" --output text)
+          if [ -z "$RDS_ENDPOINT" ] || [ "$RDS_ENDPOINT" == "None" ]; then
+            echo "::error::Endereço do RDS $RDS_IDENTIFIER não encontrado. Provisione o banco pelo techchallenge-ofisy-db-infra."
+            exit 1
+          fi
+          echo "::add-mask::$RDS_ENDPOINT"
+          echo "RDS_HOST=$RDS_ENDPOINT" >> "$GITHUB_ENV"
+          echo "RDS Host configurado com sucesso."
+
+      - name: Obter URLs do Core e do Stock (NLBs internos)
+        run: |
+          NLB_ARNS=$(aws elbv2 describe-load-balancers --query "LoadBalancers[?Type=='network'].LoadBalancerArn" --output text)
+
+          find_nlb_url() {
+            local service_name="$1"
+            local arn dns
+            for arn in $NLB_ARNS; do
+              if [ "$(aws elbv2 describe-tags --resource-arns "$arn" --query "TagDescriptions[0].Tags[?Key=='kubernetes.io/service-name'].Value | [0]" --output text)" == "$service_name" ]; then
+                dns=$(aws elbv2 describe-load-balancers --load-balancer-arns "$arn" --query "LoadBalancers[0].DNSName" --output text)
+                echo "http://$dns:8080"
+                return 0
+              fi
+            done
+            return 1
+          }
+
+          if ! CORE_URL=$(find_nlb_url "$CORE_SERVICE_NAME"); then
+            echo "::error::NLB do Service $CORE_SERVICE_NAME não encontrado. Faça o deploy do core antes do billing."
+            exit 1
+          fi
+          if ! STOCK_URL=$(find_nlb_url "$STOCK_SERVICE_NAME"); then
+            echo "::error::NLB do Service $STOCK_SERVICE_NAME não encontrado. Faça o deploy do ms-ofisy-stock antes do billing."
+            exit 1
+          fi
+
+          echo "CORE_URL=$CORE_URL" >> "$GITHUB_ENV"
+          echo "STOCK_URL=$STOCK_URL" >> "$GITHUB_ENV"
+          echo "Core: $CORE_URL"
+          echo "Stock: $STOCK_URL"
+
+      - name: Conectar ao EKS Cluster
+        run: |
+          aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER"
+
+      - name: Instalar/Atualizar Metrics Server
+        continue-on-error: true
+        run: |
+          kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+
+          kubectl patch deployment metrics-server -n kube-system --type='json' \
+            -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]' \
+            || true
+
+          kubectl rollout status deployment/metrics-server -n kube-system --timeout=180s
+
+      - name: Login no Amazon ECR
+        run: |
+          aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+
+      - name: Enviar Imagem para o ECR
+        run: |
+          IMAGE_TAG=$(git rev-parse --short HEAD)
+          IMAGE_URI=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "IMAGE_TAG=$IMAGE_TAG" >> "$GITHUB_ENV"
+          echo "IMAGE_URI=$IMAGE_URI" >> "$GITHUB_ENV"
+
+          if aws ecr describe-images --repository-name "$ECR_REPOSITORY" --image-ids imageTag="$IMAGE_TAG" > /dev/null 2> ecr-error.txt; then
+            echo "Imagem $IMAGE_TAG já existe no ECR (tags imutáveis). Reaproveitando sem novo build."
+            exit 0
+          fi
+          if ! grep -q ImageNotFoundException ecr-error.txt; then
+            cat ecr-error.txt
+            exit 1
+          fi
+
+          docker build -t "$IMAGE_URI" .
+          docker push "$IMAGE_URI"
+
+      - name: Deploy dos Manifestos no EKS
+        env:
+          DB_PASS: ${{ secrets.DB_PASSWORD }}
+          JWT_SEC: ${{ secrets.JWT_SECRET }}
+          DD_KEY: ${{ secrets.DD_API_KEY }}
+          CORE_TOKEN: ${{ secrets.CORE_SERVICE_TOKEN }}
+          STOCK_TOKEN: ${{ secrets.STOCK_SERVICE_TOKEN }}
+          MP_ACCESS_TOKEN: ${{ secrets.MERCADOPAGO_ACCESS_TOKEN }}
+          MP_WEBHOOK_SECRET: ${{ secrets.MERCADOPAGO_WEBHOOK_SECRET }}
+        run: |
+          BASE64_USER=$(echo -n "admin_db" | base64 -w 0)
+          BASE64_PASS=$(echo -n "$DB_PASS" | base64 -w 0)
+          BASE64_JWT=$(echo -n "$JWT_SEC" | base64 -w 0)
+          BASE64_DD_KEY=$(echo -n "$DD_KEY" | base64 -w 0)
+          BASE64_CORE_TOKEN=$(echo -n "$CORE_TOKEN" | base64 -w 0)
+          BASE64_STOCK_TOKEN=$(echo -n "$STOCK_TOKEN" | base64 -w 0)
+          BASE64_MP_ACCESS_TOKEN=$(echo -n "$MP_ACCESS_TOKEN" | base64 -w 0)
+          BASE64_MP_WEBHOOK_SECRET=$(echo -n "$MP_WEBHOOK_SECRET" | base64 -w 0)
+
+          sed -i "s|<BASE64_USERNAME>|$BASE64_USER|g" k8s/secret.yml
+          sed -i "s|<BASE64_PASSWORD>|$BASE64_PASS|g" k8s/secret.yml
+          sed -i "s|<BASE64_JWT_SECRET>|$BASE64_JWT|g" k8s/secret.yml
+          sed -i "s|<BASE64_DD_API_KEY>|$BASE64_DD_KEY|g" k8s/secret.yml
+          sed -i "s|<BASE64_CORE_SERVICE_TOKEN>|$BASE64_CORE_TOKEN|g" k8s/secret.yml
+          sed -i "s|<BASE64_STOCK_SERVICE_TOKEN>|$BASE64_STOCK_TOKEN|g" k8s/secret.yml
+          sed -i "s|<BASE64_MERCADOPAGO_ACCESS_TOKEN>|$BASE64_MP_ACCESS_TOKEN|g" k8s/secret.yml
+          sed -i "s|<BASE64_MERCADOPAGO_WEBHOOK_SECRET>|$BASE64_MP_WEBHOOK_SECRET|g" k8s/secret.yml
+
+          sed -i "s|<RDS_ADDRESS>|$RDS_HOST|g" k8s/configmap.yml
+          sed -i "s|<CORE_BASE_URL>|$CORE_URL|g" k8s/configmap.yml
+          sed -i "s|<STOCK_BASE_URL>|$STOCK_URL|g" k8s/configmap.yml
+          sed -i "s|<IMAGE_TAG>|$IMAGE_TAG|g" k8s/configmap.yml
+
+          CONFIG_HASH=$(cat k8s/configmap.yml k8s/secret.yml | sha256sum | cut -d' ' -f1)
+
+          sed -i "s|<ECR_REPOSITORY_URL>:<IMAGE_TAG>|$IMAGE_URI|g" k8s/deployment.yml
+          sed -i "s|<IMAGE_TAG>|$IMAGE_TAG|g" k8s/deployment.yml
+          sed -i "s|<CONFIG_HASH>|$CONFIG_HASH|g" k8s/deployment.yml
+
+          kubectl apply -f k8s/secret.yml
+          kubectl apply -f k8s/configmap.yml
+          kubectl apply -f k8s/deployment.yml
+          kubectl apply -f k8s/service.yml
+          kubectl apply -f k8s/hpa.yml
+
+          kubectl rollout status deployment/ms-ofisy-billing-deployment --timeout=300s
+
+          echo "Aguardando DNS do Load Balancer estar disponível..."
+          NLB_HOST=""
+          for i in {1..30}; do
+            NLB_HOST=$(kubectl get svc ms-ofisy-billing-service -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+            if [ -n "$NLB_HOST" ]; then
+              echo "Load Balancer DNS obtido: $NLB_HOST"
+              break
+            fi
+            echo "Aguardando 10 segundos (tentativa $i de 30)..."
+            sleep 10
+          done
+
+          {
+            echo ""
+            echo "### Deploy concluído"
+            echo "- Imagem: \`$IMAGE_URI\`"
+            if [ -n "$NLB_HOST" ]; then
+              echo "- NLB interno: \`http://$NLB_HOST:8080\` (acesso externo pelo API Gateway)"
+            else
+              echo "- Não foi possível obter o DNS do Load Balancer a tempo."
+            fi
+            echo "- Webhook do Mercado Pago: \`https://<api-gateway>/api/v1/webhooks/mercado-pago\`, configurado no painel da aplicação do Mercado Pago"
+          } >> "$GITHUB_STEP_SUMMARY"

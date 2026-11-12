@@ -1,0 +1,63 @@
+name: Destruir Aplicação no Kubernetes (EKS)
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+env:
+  AWS_REGION: us-east-1
+  EKS_CLUSTER: ms-ofisy-billing-cluster
+
+jobs:
+  destroy-app:
+    name: Remover Manifestos do Kubernetes
+    runs-on: ubuntu-latest
+    environment: AWS_ACADEMY
+
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v7
+        with:
+          repository: 15SOAT-FIAP/ms-ofisy-billing
+
+      - name: Configurar Credenciais AWS
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verificar Existência do Cluster
+        id: cluster
+        run: |
+          if aws eks describe-cluster --region "$AWS_REGION" --name "$EKS_CLUSTER" > /dev/null 2> eks-error.txt; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! grep -q ResourceNotFoundException eks-error.txt; then
+            cat eks-error.txt
+            exit 1
+          fi
+
+          echo "exists=false" >> "$GITHUB_OUTPUT"
+          echo "Cluster $EKS_CLUSTER não encontrado. Nada a remover." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Conectar ao EKS Cluster
+        if: steps.cluster.outputs.exists == 'true'
+        run: |
+          aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER"
+
+      - name: Remover Recursos do EKS
+        if: steps.cluster.outputs.exists == 'true'
+        run: |
+          kubectl delete -f k8s/hpa.yml --ignore-not-found
+          kubectl delete -f k8s/service.yml --ignore-not-found
+          kubectl delete -f k8s/deployment.yml --ignore-not-found
+          kubectl delete -f k8s/configmap.yml --ignore-not-found
+          kubectl delete -f k8s/secret.yml --ignore-not-found
+
+          echo "Aguardando 30 segundos para liberação do Elastic Load Balancer..."
+          sleep 30
+
+          echo "Aplicação desinstalada do Kubernetes com sucesso."
