@@ -1,0 +1,12 @@
+spring:
+  config:
+    activate:
+      on-profile: k8s
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST}:5432/${POSTGRES_DB}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+logging:
+  level:
+    org.flywaydb: INFO
