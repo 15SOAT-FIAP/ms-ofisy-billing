@@ -73,6 +73,8 @@ br.com.ofisy.ms_ofisy_billing
 | Spring Data JPA      | Persistência e mapeamento ORM                                            | `spring-boot-starter-data-jpa`                                                                                            |
 | Spring Validation    | Validação de DTOs e beans                                                | `spring-boot-starter-validation`                                                                                          |
 | Spring Actuator      | Endpoint de saúde (`/actuator/health`)                                   | `spring-boot-starter-actuator`                                                                                            |
+| Micrometer Datadog   | Exportação de métricas para o Datadog (ativa só no perfil `k8s`)         | `micrometer-registry-datadog`                                                                                             |
+| Logstash Encoder     | Logs em JSON com correlação de traces do Datadog no perfil `k8s`         | `logstash-logback-encoder`                                                                                                |
 | Flyway               | Versionamento do schema, com suporte ao dialeto do PostgreSQL            | `spring-boot-starter-flyway`, `flyway-database-postgresql`                                                                |
 | PostgreSQL           | Driver JDBC                                                              | `postgresql`                                                                                                              |
 | Docker Compose       | Sobe o `compose.db.yaml` automaticamente ao rodar a aplicação localmente | `spring-boot-docker-compose`                                                                                              |
@@ -92,11 +94,13 @@ br.com.ofisy.ms_ofisy_billing
 - `application.yaml`: configuração base (datasource em `localhost:5435`, Flyway, região AWS, nomes da fila e do tópico, parâmetros do outbox, JWT, cliente do core e rotas públicas). O perfil ativo por padrão é `dev`;
 - `application-dev.yaml`: aponta o SDK da AWS para o LocalStack em `localhost:4566`;
 - `application-docker.yaml`: configuração usada quando a aplicação roda dentro do `compose.yaml` (banco e LocalStack pelos nomes dos serviços);
+- `application-k8s.yaml`: configuração usada no EKS (RDS via `POSTGRES_HOST`, probes do Kubernetes e AWS real);
+- `logback-spring.xml`: logs em JSON para o Datadog no perfil `k8s` e console padrão nos demais;
 - `pom.xml`: dependências e plugins do Maven.
 
 ### Docker
 
-- `Dockerfile`: build multi-stage da aplicação;
+- `Dockerfile`: build multi-stage da aplicação. A imagem inclui o `dd-java-agent` do Datadog com versão e checksum fixos, ativado só no k8s via `JAVA_TOOL_OPTIONS`;
 - `compose.yaml`: ambiente completo (PostgreSQL, LocalStack e aplicação);
 - `compose.db.yaml`: apenas o PostgreSQL, que o Spring Boot Docker Compose sobe sozinho ao rodar a aplicação na IDE;
 - `.dockerignore`: arquivos ignorados no build da imagem.
@@ -114,9 +118,15 @@ br.com.ofisy.ms_ofisy_billing
 - `.env`: variáveis sensíveis. **Não é versionado**;
 - `env.example`: modelo do `.env`.
 
-### CI (GitHub Actions)
+### Kubernetes
+
+- `k8s/`: manifestos do deploy no EKS (`configmap`, `secret`, `deployment`, `service` e `hpa`). Ver [Deploy no EKS](#deploy-no-eks).
+
+### CI/CD (GitHub Actions)
 
 - `.github/workflows/ci.yml`: build, testes e gate de cobertura (`mvn verify`) a cada push/PR na `master`;
+- `.github/workflows/cd.yml`: deploy manual no EKS. Ver [Deploy no EKS](#deploy-no-eks);
+- `.github/workflows/destroy-app.yml`: remove manualmente os recursos da aplicação do cluster;
 - `.github/workflows/notify-pr.yml`: notifica abertura e fechamento de Pull Requests no Discord.
 
 ---
@@ -275,6 +285,14 @@ Os demais comandos (`StockConsumptionFailed`, `StockRefunded`, DLQ) estão em [M
 | `CORE_SERVICE_TOKEN` | Token de serviço enviado ao core nessa leitura                                                  |
 | `STOCK_BASE_URL`     | URL do `ms-ofisy-stock`, usada para ler nome e preço do produto (`GET /api/v1/stocks/{id}`)     |
 | `STOCK_SERVICE_TOKEN`| JWT de serviço enviado ao estoque nessa leitura (precisa de uma role aceita pelo estoque: `ADMIN`, `STOCKMAN` ou `MECHANIC`) |
+| `POSTGRES_HOST`      | Host do banco no perfil `k8s`                                                                   |
+| `DD_METRICS_ENABLED`, `DD_API_KEY` | Exportação de métricas para o Datadog (desligada por padrão)                      |
+
+---
+
+## Deploy no EKS
+
+O deploy é feito pelo workflow **Deploy Manual na AWS (CD)** (`cd.yml`) no cluster `ms-ofisy-billing-cluster`. O `Service` cria um NLB interno, e o acesso externo, inclusive o webhook do Mercado Pago, passa pelo API Gateway do `techchallenge-ofisy-eks-infra`. Manifestos, secrets, rotas do Gateway e Datadog estão em [DEPLOY.md](docs/DEPLOY.md).
 
 ---
 
@@ -300,6 +318,9 @@ Os testes de integração (`*IT.java`) precisam do Docker ligado. Detalhes em [T
 ### Banco de Dados
 - **[Banco de Dados](docs/DATABASE.md)**: tabelas, constraints e o que mudou ao extrair do monolito
 - **[Guia de Flyway](docs/FLYWAY.md)**: como criar e executar migrations
+
+### Deploy
+- **[Deploy no EKS](docs/DEPLOY.md)**: manifestos k8s, workflows de CD, exposição pelo API Gateway, webhook do Mercado Pago e Datadog
 
 ### Qualidade e Testes
 - **[Guia de Testes](docs/TESTING.md)**: testes unitários e de integração, Testcontainers e cobertura

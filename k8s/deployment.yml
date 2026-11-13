@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ms-ofisy-billing-deployment
+spec:
+  template:
+    metadata:
+      labels:
+        app: ms-ofisy-billing-app
+        tags.datadoghq.com/service: ms-ofisy-billing
+        tags.datadoghq.com/env: production
+        tags.datadoghq.com/version: "<IMAGE_TAG>"
+      annotations:
+        checksum/config: "<CONFIG_HASH>"
+        ad.datadoghq.com/ms-ofisy-billing-app.checks: |
+          {
+            "http_check": {
+              "instances": [
+                {
+                  "name": "ms-ofisy-billing",
+                  "url": "http://%%host%%:8080/actuator/health"
+                }
+              ]
+            }
+          }
+    spec:
+      containers:
+        - name: ms-ofisy-billing-app
+          image: <ECR_REPOSITORY_URL>:<IMAGE_TAG>
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: ms-ofisy-billing-config
+            - secretRef:
+                name: ms-ofisy-billing-secret
+          env:
+            - name: DD_AGENT_HOST
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+          startupProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            periodSeconds: 10
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            periodSeconds: 10
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+  selector:
+    matchLabels:
+      app: ms-ofisy-billing-app

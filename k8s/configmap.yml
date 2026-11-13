@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ms-ofisy-billing-config
+data:
+  POSTGRES_HOST: "<RDS_ADDRESS>"
+  POSTGRES_DB: "ms_ofisy_billing_db"
+  SPRING_PROFILES_ACTIVE: "k8s"
+  CORE_BASE_URL: "<CORE_BASE_URL>"
+  STOCK_BASE_URL: "<STOCK_BASE_URL>"
+  MERCADOPAGO_EXPIRATION_TIME: "P3D"
+  MERCADOPAGO_RETRIES_ALLOWED: "true"
+  JAVA_TOOL_OPTIONS: "-javaagent:/app/dd-java-agent.jar -XX:MaxRAMPercentage=75"
+  DD_SERVICE: "ms-ofisy-billing"
+  DD_ENV: "production"
+  DD_VERSION: "<IMAGE_TAG>"
+  DD_METRICS_ENABLED: "true"

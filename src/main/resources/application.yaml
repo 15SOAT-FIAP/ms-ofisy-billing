@@ -62,6 +62,17 @@ management:
     web:
       exposure:
         include: health
+  metrics:
+    tags:
+      service: ${DD_SERVICE:ms-ofisy-billing}
+      env: ${DD_ENV:local}
+  datadog:
+    metrics:
+      export:
+        enabled: ${DD_METRICS_ENABLED:false}
+        api-key: ${DD_API_KEY:}
+        uri: ${DD_METRICS_URI:https://api.us5.datadoghq.com}
+        step: 30s
 logging:
   level:
     org.flywaydb: DEBUG
