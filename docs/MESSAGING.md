@@ -416,10 +416,27 @@ sequenceDiagram
 |-----------------------------------------------------|------------------------------------------------------------------------|
 | `domain/outbox/OutboxEvent`                         | O evento a publicar: tipo, OS e payload. Id e `occurredAt` são gerados |
 | `domain/outbox/OutboxEventRepository`               | Porta usada pelos casos de uso. Só tem `save`                          |
-| `adapters/gateways/outbox/OutboxEventRepositoryImpl` | Serializa o payload para JSON e grava em `outbox_events`               |
-| `adapters/publishers/OutboxEventPublisher`          | Lê os pendentes, publica o envelope no SNS e marca `published_at`      |
+| `adapters/gateways/outbox/OutboxEventRepositoryImpl` | Serializa o payload para JSON e grava em `outbox_events` junto com o contexto do trace atual |
+| `adapters/publishers/OutboxEventPublisher`          | Lê os pendentes, publica o envelope no SNS dentro do trace de origem e marca `published_at` |
+| `adapters/tracing/TraceContextPropagator`           | Captura e restaura o contexto do trace pela API do OpenTelemetry       |
+| `adapters/tracing/MessageTraceContextReader`        | Lê o contexto do trace do atributo `_datadog` da mensagem consumida    |
 
 O envelope publicado é o mesmo `EventEnvelope` que este ms consome, então quem assina o tópico recebe o mesmo contrato descrito em [Contrato dos eventos](#contrato-dos-eventos). O nome e o payload de cada evento são montados no próprio caso de uso que o grava, e os testes de cada caso de uso conferem esse conteúdo.
+
+### Rastreamento distribuído pelo outbox
+
+O publicador roda em um job agendado, e o `dd-java-agent` abre um trace novo a cada execução dele. Sem tratamento, a publicação no SNS ficaria nesse trace do job e o fluxo de uma OS apareceria quebrado no Datadog, separado da requisição (ou do consumo de mensagem) que gerou o evento. O mesmo acontece no consumo: o agent não continua no `@SqsListener` o trace recebido na mensagem.
+
+Para manter o fluxo em um único trace:
+
+1. Ao gravar o evento, o `OutboxEventRepositoryImpl` captura o contexto do trace ativo (`traceparent` e `x-datadog-*`) e o guarda na coluna `trace_context`.
+2. Ao publicar, o `OutboxEventPublisher` restaura esse contexto e cria o span `outbox.publish` como filho do trace de origem, com os atributos `ofisy.event.id`, `ofisy.event.type`, `ofisy.service_order.id` e `messaging.destination.name`.
+3. Com o span de origem ativo, a instrumentação do SNS do `dd-java-agent` injeta o trace no atributo `_datadog` da mensagem.
+4. No consumo, o `BillingEventsListener` lê esse atributo com o `MessageTraceContextReader` e processa o evento dentro do span `event.consume`, filho do trace de quem publicou, com os atributos `ofisy.event.id`, `ofisy.event.type` e, quando o evento é de uma OS, `ofisy.service_order.id`. Esse passo é necessário porque o agent não liga sozinho o `@SqsListener` ao trace recebido: a mensagem é recebida em uma thread e processada em outra. Como o evento que o handler grava no outbox captura o trace ativo, o fluxo segue no mesmo trace para o próximo ms.
+
+O atributo `_datadog` é publicado como `Binary` e chega ao listener como `SdkBytes`; um atributo ausente ou ilegível não impede o consumo, o evento só é processado sem a ligação com o trace de origem.
+
+O contexto viaja nos atributos da mensagem, não no envelope, então o contrato dos eventos não muda. A captura usa a API do OpenTelemetry, que o `dd-java-agent` conecta aos spans do Datadog quando `DD_TRACE_OTEL_ENABLED=true` (definido em `k8s/configmap.yml`). Sem o agent, como em ambiente local e nos testes, a API é no-op: nada é capturado e o evento é publicado normalmente. Um `trace_context` ilegível também não impede a publicação, só perde a ligação com o trace de origem. O core, o `ms-ofisy-execution` e o `ms-ofisy-stock` fazem o mesmo nos seus outboxes e listeners.
 
 ### Garantias
 

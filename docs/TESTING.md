@@ -33,8 +33,12 @@ Testcontainers subindo um Postgres real e, nos de mensageria, um LocalStack.
     Testcontainers Postgres, validando que as migrations do Flyway produzem um schema
     compatível com as entidades (constraints de unicidade incluídas, e `external_id` obrigatório).
   - Consumo de eventos: `BillingEventsListenerTest` (despacho pelo `type`, tipo sem handler,
-    falha propagada para a mensagem não ser confirmada, `type` duplicado) e um teste por handler
-    (`StockConsumedHandlerTest` etc.) conferindo o comando enviado ao caso de uso.
+    falha propagada para a mensagem não ser confirmada, `type` duplicado e consumo dentro do trace
+    da mensagem) e um teste por handler (`StockConsumedHandlerTest` etc.) conferindo o comando
+    enviado ao caso de uso.
+  - Rastreamento: `TraceContextPropagatorTest` (sem o `dd-java-agent`, nada é capturado e a ação
+    nunca é impedida) e `MessageTraceContextReaderTest` (atributo `_datadog` como `SdkBytes`, texto
+    ou bytes, e atributo ausente ou ilegível).
 - Os casos de uso acionados por evento (`SendQuoteForApprovalServiceTest`,
   `CancelQuoteServiceTest`, `CreatePaymentServiceTest`) cobrem, além do caminho feliz, o evento
   repetido (descartado por `processed_events`), o evento ignorado por regra de negócio (que
