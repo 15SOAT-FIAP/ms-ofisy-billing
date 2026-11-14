@@ -115,6 +115,7 @@ Core, estoque e billing ficam em clusters diferentes, então o billing chama os 
 ## Observabilidade (Datadog)
 
 - **Traces**: o `dd-java-agent` vem na imagem e é ativado pelo `JAVA_TOOL_OPTIONS` do ConfigMap. Ele envia os traces para o Agent do nó (`DD_AGENT_HOST`, porta `8126`);
+- **Rastreamento distribuído**: `DD_TRACE_OTEL_ENABLED=true` no ConfigMap conecta a API do OpenTelemetry ao `dd-java-agent`. É ela que o outbox e o listener usam para manter o fluxo da OS no mesmo trace entre os microsserviços ([MESSAGING.md](MESSAGING.md#rastreamento-distribuído-pelo-outbox));
 - **Métricas**: o Micrometer exporta para o Datadog quando `DD_METRICS_ENABLED=true` (só no ConfigMap do k8s);
 - **Logs**: no perfil `k8s`, o `logback-spring.xml` escreve JSON com `dd.trace_id` e `dd.span_id`, que o Agent coleta de todos os containers;
 - **Health check**: a annotation `ad.datadoghq.com/...checks` configura um `http_check` em `/actuator/health`.

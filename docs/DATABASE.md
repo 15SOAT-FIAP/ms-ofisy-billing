@@ -13,6 +13,7 @@ entre serviços são só por id). Migrations com Flyway (ver [FLYWAY.md](FLYWAY.
 | V3 | `payments` | Cobrança de uma OS, criada `PENDING` quando chega o `ServiceOrderFinished`. `external_id` é obrigatório e único (id da order no Mercado Pago), e `checkout_url` e `status_detail` guardam o link de pagamento e o detalhe do status. |
 | V4 | `outbox_events` | Transactional outbox (ADR-0011). Índice parcial em `occurred_at` para os eventos pendentes (`published_at IS NULL`), já que é essa consulta que o publicador agendado roda a cada ciclo. |
 | V5 | `processed_events` | Eventos já consumidos (`event_id` é a chave primária). Idempotência do consumo: cada caso de uso grava o `eventId` na mesma transação do seu efeito. |
+| V6 | `outbox_events` | Coluna `trace_context` (JSONB, nula): o contexto do trace que gerou o evento, restaurado na publicação para o fluxo da OS seguir no mesmo trace no Datadog ([MESSAGING.md](MESSAGING.md#rastreamento-distribuído-pelo-outbox)). |
 
 ## Status do orçamento
 
