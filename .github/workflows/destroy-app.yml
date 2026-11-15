@@ -10,7 +10,7 @@ env:
 
 jobs:
   destroy-app:
-    name: Remover Manifestos do Kubernetes
+    name: Remover Billing
     runs-on: ubuntu-latest
     environment: AWS_ACADEMY
 
