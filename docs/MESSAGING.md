@@ -104,10 +104,10 @@ Todos saem pelo outbox, descrito em [Publicação de eventos](#publicação-de-e
 | Evento                 | Quando é publicado                                                 | Quem reage                                                                      |
 |------------------------|--------------------------------------------------------------------|---------------------------------------------------------------------------------|
 | `QuoteCreated`         | Orçamento **com itens de estoque** criado (`POST /quotes`)         | ms-ofisy-stock: dá baixa nos itens (`StockConsumed` / `StockConsumptionFailed`) |
-| `QuoteSentForApproval` | Estoque consumido (na criação ou depois de uma edição); ou orçamento só com serviços, direto na criação | core: OS → `AWAITING_APPROVAL` e cria a notificação                             |
+| `QuoteSentForApproval` | Estoque consumido (na criação ou depois de uma edição); ou orçamento só com serviços, direto na criação | core: OS → `AWAITING_APPROVAL`. ms-ofisy-notification: avisa o cliente           |
 | `QuoteUpdated`         | Itens do orçamento editados (`PATCH /quotes/{id}`), em toda edição | ms-ofisy-stock: baixa o que aumentou, devolve o que diminuiu e responde (`StockConsumed` / `StockConsumptionFailed`) |
 | `QuoteApproved`        | Cliente aprova o orçamento (rota pública)                          | ms-ofisy-execution: cria as execuções. core: OS → `AWAITING_EXECUTION`          |
-| `QuoteReproved`        | Cliente reprova o orçamento (rota pública)                         | ms-ofisy-stock: devolve os itens (`StockRefunded`). core: cancela a OS          |
+| `QuoteReproved`        | Cliente reprova o orçamento (rota pública)                         | ms-ofisy-stock: devolve os itens, e o `StockRefunded` leva o core a cancelar a OS |
 | `QuoteCancelled`       | Falta de estoque, ou estoque devolvido após o cancelamento da OS   | core: OS → cancelada                                                            |
 | `PaymentCheckoutCreated` | Order criada no Mercado Pago ao finalizar a OS, ou um novo link depois de uma cobrança `FAILED` | ms-ofisy-notification: envia o link de pagamento ao cliente |
 | `PaymentConfirmed`     | Webhook: order `processed`, cobrança `PAID`                        | core: libera a OS para entrega. ms-ofisy-notification: confirma o pagamento ao cliente |
