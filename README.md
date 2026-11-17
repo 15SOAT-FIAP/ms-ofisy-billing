@@ -192,6 +192,8 @@ Não há rota para cancelar um orçamento nem para criar uma cobrança: o cancel
 
 Erros seguem o formato `ProblemDetail` (RFC 9457), com `title` e `detail`: `400` para dados inválidos, `404` para orçamento, serviço do catálogo ou item de estoque inexistente, `503` quando o `ms-ofisy-stock` não responde na hora de montar o orçamento, `409` para orçamento já existente na OS ou item duplicado, e `422` para uma transição de status não permitida (por exemplo, aprovar um orçamento que não está `AWAITING_APPROVAL`).
 
+Em produção, a spec deste serviço também aparece no Swagger do core, que reúne as APIs de todos os serviços: no Swagger UI do core, escolha `billing` no seletor de definições. O API Gateway expõe o `/v3/api-docs` deste serviço em `/docs/billing`. Para o *Try it out* funcionar por lá, o `SwaggerConfig` declara o servidor do OpenAPI com URL relativa (`/`): as chamadas vão para a raiz do Gateway, com o mesmo roteamento e o mesmo authorizer das chamadas normais.
+
 ---
 
 ## Ciclo de vida do orçamento
