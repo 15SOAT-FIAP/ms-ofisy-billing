@@ -7,7 +7,7 @@ set -euo pipefail
 # A secret vem de MERCADOPAGO_WEBHOOK_SECRET no ambiente ou no .env.
 
 ORDER_ID=${ORDER_ID:?Informe ORDER_ID}
-APP_URL=${APP_URL:-http://localhost:8080}
+APP_URL=${APP_URL:-http://localhost:8083}
 
 SECRET=${MERCADOPAGO_WEBHOOK_SECRET:-}
 if [ -z "$SECRET" ] && [ -f .env ]; then

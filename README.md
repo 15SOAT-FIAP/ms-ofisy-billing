@@ -2,7 +2,7 @@
 
 FIAP 15SOAT - Tech Challenge - Grupo 87
 
-Microsserviço responsável pelo **orçamento (quote) de uma ordem de serviço** da Ofisy: criação, edição, aprovação, reprovação e cancelamento, além da cobrança (`Payment`) gerada quando a OS é finalizada. Ele publica o que acontece com o orçamento (`QuoteCreated`, `QuoteUpdated`, `QuoteSentForApproval`, `QuoteApproved`, `QuoteReproved`, `QuoteCancelled`) e reage aos eventos do estoque e do core (`StockConsumed`, `StockConsumptionFailed`, `StockRefunded`, `ServiceOrderFinished`).
+Microsserviço responsável pelo **orçamento (quote) de uma ordem de serviço** da Ofisy: criação, edição, aprovação, reprovação e cancelamento, além da cobrança (`Payment`) gerada quando a OS é finalizada. Ele publica o que acontece com o orçamento (`QuoteCreated`, `QuoteUpdated`, `QuoteSentForApproval`, `QuoteApproved`, `QuoteReproved`, `QuoteCancelled`) e com a cobrança (`PaymentCheckoutCreated`, `PaymentConfirmed`, `PaymentFailed`), e reage aos eventos do estoque e do core (`StockConsumed`, `StockConsumptionFailed`, `StockRefunded`, `ServiceOrderFinished`).
 
 O contexto de orçamento foi extraído do core da Ofisy ([techchallenge-ofisy](https://github.com/15SOAT-FIAP/techchallenge-ofisy)), que continua existindo enquanto alguns contextos são estrangulados para microsserviços. Este ms participa da saga coordenada por coreografia, e as decisões por trás dessa arquitetura estão registradas nos ADRs do core:
 
@@ -10,7 +10,7 @@ O contexto de orçamento foi extraído do core da Ofisy ([techchallenge-ofisy](h
 - [ADR-0011 - Utilizar SNS e SQS como mensageria](https://github.com/15SOAT-FIAP/techchallenge-ofisy/blob/master/docs/adr/0011-utilizar-sns-e-sqs-como-mensageria.md)
 - [ADR-0012 - Coordenar a saga por coreografia](https://github.com/15SOAT-FIAP/techchallenge-ofisy/blob/master/docs/adr/0012-coordenar-a-saga-por-coreografia.md)
 
-Quando chega o `ServiceOrderFinished`, o ms cria a order no Mercado Pago (Checkout Pro), grava a cobrança `PENDING` com o `externalId` e o link de pagamento e publica o `PaymentCheckoutCreated`. O webhook do Mercado Pago e os eventos `PaymentConfirmed` e `PaymentFailed` ficam para outra etapa.
+Quando chega o `ServiceOrderFinished`, o ms cria a order no Mercado Pago (Checkout Pro), grava a cobrança `PENDING` com o `externalId` e o link de pagamento e publica o `PaymentCheckoutCreated`. Quando o status da order muda, o Mercado Pago chama o webhook do ms, que consulta a order e leva a cobrança a `PAID` (publicando `PaymentConfirmed`), a `FAILED` (publicando `PaymentFailed` e criando um novo link) ou a `EXPIRED` (publicando `PaymentFailed`) ([MESSAGING.md](docs/MESSAGING.md#webhook-do-mercado-pago)).
 
 ---
 
@@ -53,7 +53,7 @@ br.com.ofisy.ms_ofisy_billing
 | Java             | 21 (LTS) | Linguagem da aplicação                                             |
 | Spring Boot      | 4.1.1    | Framework base                                                     |
 | Spring Cloud AWS | 4.2.0    | Integração com o Amazon SNS e SQS                                  |
-| PostgreSQL       | 16       | Banco de dados dos orçamentos e das cobranças                      |
+| PostgreSQL       | 15       | Banco de dados dos orçamentos e das cobranças                      |
 | LocalStack       | 4.13.1   | Emulação de SNS e SQS no ambiente local e nos testes de integração |
 | Maven            | 3.9.x    | Build e gerenciamento de dependências                              |
 | Docker           | —        | Containerização da aplicação e dos serviços dependentes            |
@@ -185,8 +185,9 @@ Base: `/api/v1`
 | `GET`   | `/quotes/{id}`                    | staff                                    | Busca um orçamento por id                                                                           |
 | `GET`   | `/quotes?serviceOrderId={id}`     | staff                                    | Busca o orçamento de uma OS                                                                         |
 | `GET`   | `/payments?serviceOrderId={id}`   | staff                                    | Consulta as cobranças de uma OS (criadas `PENDING` quando a OS é finalizada)                        |
+| `POST`  | `/webhooks/mercado-pago`          | **público** (assinatura do Mercado Pago) | Notificação de mudança de status de uma order; atualiza a cobrança e publica o evento de pagamento  |
 
-As rotas de aprovar e reprovar são abertas nesta aplicação porque quem as protege é o Lambda Authorizer de CPF/CNPJ no API Gateway. As demais exigem um JWT emitido pelo core com role `ADMIN`, `ATTENDANT` ou `MECHANIC`. Sem token válido a resposta é `401`, e com outra role é `403` ([SECURITY.md](docs/SECURITY.md)). Para testar localmente, gere um token com `make token ROLE=ATTENDANT`.
+As rotas de aprovar e reprovar são abertas nesta aplicação porque quem as protege é o Lambda Authorizer de CPF/CNPJ no API Gateway. O webhook também é aberto, e a aplicação valida o header `x-signature` com o `MERCADOPAGO_WEBHOOK_SECRET` (`401` se a assinatura for inválida). As demais exigem um JWT emitido pelo core com role `ADMIN`, `ATTENDANT` ou `MECHANIC`. Sem token válido a resposta é `401`, e com outra role é `403` ([SECURITY.md](docs/SECURITY.md)). Para testar localmente, gere um token com `make token ROLE=ATTENDANT`.
 
 Não há rota para cancelar um orçamento nem para criar uma cobrança: o cancelamento é feito pelos eventos `StockConsumptionFailed` e `StockRefunded`, e a cobrança pelo `ServiceOrderFinished` ([MESSAGING.md](docs/MESSAGING.md)).
 
@@ -287,6 +288,10 @@ Os demais comandos (`StockConsumptionFailed`, `StockRefunded`, DLQ) estão em [M
 | `CORE_SERVICE_TOKEN` | Token de serviço enviado ao core nessa leitura                                                  |
 | `STOCK_BASE_URL`     | URL do `ms-ofisy-stock`, usada para ler nome e preço do produto (`GET /api/v1/stocks/{id}`)     |
 | `STOCK_SERVICE_TOKEN`| JWT de serviço enviado ao estoque nessa leitura (precisa de uma role aceita pelo estoque: `ADMIN`, `STOCKMAN` ou `MECHANIC`) |
+| `MERCADOPAGO_ACCESS_TOKEN` | Access Token da aplicação no Mercado Pago, usado para criar e consultar as orders         |
+| `MERCADOPAGO_WEBHOOK_SECRET` | Assinatura secreta do webhook, usada para validar o `x-signature` das notificações       |
+| `MERCADOPAGO_EXPIRATION_TIME` | Prazo de expiração da order (padrão `P3D`)                                             |
+| `MERCADOPAGO_RETRIES_ALLOWED` | Permite ao cliente tentar de novo no mesmo link depois de um cartão recusado (padrão `true`) |
 | `POSTGRES_HOST`      | Host do banco no perfil `k8s`                                                                   |
 | `DD_METRICS_ENABLED`, `DD_API_KEY` | Exportação de métricas para o Datadog (desligada por padrão)                      |
 

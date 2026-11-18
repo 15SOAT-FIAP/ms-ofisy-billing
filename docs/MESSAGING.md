@@ -182,10 +182,10 @@ O que o billing faz com cada resposta:
 - `StockConsumptionFailed`: o orçamento é cancelado, o core cancela a OS e o estoque devolve o que já tinha saído pelo `AllExecutionsCancelled`;
 - edição que chega ao estoque depois da devolução da OS: o estoque ignora e não responde, e o orçamento não fica preso porque o cancelamento da OS já o levou a `CANCELLED`.
 
-**O que ainda precisa ser feito em outros serviços**
+**Como os outros serviços tratam o segundo `QuoteSentForApproval`**
 
-- **core**: aceitar um segundo `QuoteSentForApproval` para a mesma OS, ainda em `AWAITING_APPROVAL`, atualizando o total e avisando o cliente de novo sem duplicar a OS.
-- **ms-ofisy-notification**: se também reage ao `QuoteSentForApproval`, aceitar a repetição.
+- **core**: com a OS já em `AWAITING_APPROVAL`, só registra o evento, sem mudar a OS.
+- **ms-ofisy-notification**: cada `eventId` gera uma notificação, então o cliente recebe um novo aviso com o total atualizado.
 
 #### `QuoteApproved`
 
@@ -296,8 +296,6 @@ A cobrança não foi paga. O `reason` é `FAILED` (pagamento recusado; logo em s
   }
 }
 ```
-
-`StockLow` e `QuoteStockUnvailable` aparecem no desenho, mas não são consumidos nem publicados aqui.
 
 ---
 
@@ -473,7 +471,7 @@ Com o ambiente no ar (`docker compose up -d localstack` + `./mvnw spring-boot:ru
 | `make event-stock-refunded SERVICE_ORDER_ID=<uuid>`            | Publica um `StockRefunded`: cancela o orçamento se ainda estiver aberto            |
 | `make event-service-order-finished SERVICE_ORDER_ID=<uuid>`    | Publica um `ServiceOrderFinished`: cria a cobrança no Mercado Pago (o orçamento precisa estar `APPROVED` e o `MERCADOPAGO_ACCESS_TOKEN` configurado) |
 | `make db-seed-approved-quote`                                  | Cria um orçamento `APPROVED` direto no banco e imprime o `SERVICE_ORDER_ID` (aceita `SERVICE_ORDER_ID` e `TOTAL`, padrão `250.00`) |
-| `make webhook-mercado-pago ORDER_ID=<ORD...>`                  | Envia ao webhook local uma notificação assinada como o Mercado Pago assina (`MERCADOPAGO_WEBHOOK_SECRET` do `.env`). O billing consulta a order de verdade no sandbox. Aceita `APP_URL` (padrão `http://localhost:8080`) e `SIGNATURE` (sobrescreve o header, para testar o 401) |
+| `make webhook-mercado-pago ORDER_ID=<ORD...>`                  | Envia ao webhook local uma notificação assinada como o Mercado Pago assina (`MERCADOPAGO_WEBHOOK_SECRET` do `.env`). O billing consulta a order de verdade no sandbox. Aceita `APP_URL` (padrão `http://localhost:8083`) e `SIGNATURE` (sobrescreve o header, para testar o 401) |
 | `make event-ignored`                                           | Publica um `StockLow`, que a `FilterPolicy` descarta antes de chegar na fila       |
 | `make event-invalid`                                           | Envia uma mensagem inválida direto na fila, que vai para a DLQ após 5 tentativas (~2,5 min) |
 | `make queue-status`                                            | Mostra as mensagens visíveis e em processamento na fila e na DLQ                   |
@@ -578,7 +576,7 @@ sequenceDiagram
 ```
 PENDING ──StockConsumed──▶ AWAITING_APPROVAL ──approve──▶ APPROVED
    ▲                            │  └──────────reprove────▶ REPROVED
-   └─────── edição (com itens de estoque) ┘
+   └─────────────── edição ────┘
    └──────────┬─────────────────┘
               ▼   (StockConsumptionFailed / StockRefunded; também a partir de APPROVED)
           CANCELLED
