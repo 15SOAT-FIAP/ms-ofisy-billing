@@ -8,7 +8,7 @@ entre serviços são só por id). Migrations com Flyway (ver [FLYWAY.md](FLYWAY.
 
 | Migration | Tabela | Descrição |
 |---|---|---|
-| V1 | `quotes` | Orçamento da ordem de serviço. `service_order_id` é único: uma OS tem no máximo um orçamento (o fluxo de "novo orçamento" é reabrir via reprovação/edição, não criar um segundo). |
+| V1 | `quotes` | Orçamento da ordem de serviço. `service_order_id` é único: uma OS tem no máximo um orçamento. Mudanças antes da aprovação são feitas editando o orçamento; reprovado ou cancelado, ele é final e encerra a OS, e o atendimento continua em uma OS nova ([ADR-0015](https://github.com/15SOAT-FIAP/techchallenge-ofisy/blob/master/docs/adr/0015-ajustar-a-saga-da-os-ao-fluxo-implementado.md)). |
 | V2 | `quote_stock_items`, `quote_service_items` | Itens do orçamento. Guardam `stock_id`/`service_catalog_id` (UUID) — nunca uma referência de objeto para outro serviço — e o snapshot de preço (e, no estoque, o `product_name`). `UNIQUE (quote_id, stock_id)` e `UNIQUE (quote_id, service_catalog_id)`: um item não se repete no mesmo orçamento. |
 | V3 | `payments` | Cobrança de uma OS, criada `PENDING` quando chega o `ServiceOrderFinished`. `external_id` é obrigatório e único (id da order no Mercado Pago), e `checkout_url` e `status_detail` guardam o link de pagamento e o detalhe do status. |
 | V4 | `outbox_events` | Transactional outbox (ADR-0011). Índice parcial em `occurred_at` para os eventos pendentes (`published_at IS NULL`), já que é essa consulta que o publicador agendado roda a cada ciclo. |
@@ -32,10 +32,11 @@ deixou de ser possível:
   `GET /api/v1/stocks/{id}`) — este serviço nunca lê uma tabela de estoque. Ao editar o orçamento, os
   itens que já estavam nele mantêm o snapshot e só itens novos são consultados.
 - `QuoteServiceItem` passa a guardar só `serviceCatalogId`; o preço é lido do catálogo do core
-  via REST síncrono (`ServiceCatalogClient` → `GET /api/v1/services-catalog/{id}`), a única
-  leitura síncrona entre serviços permitida pela RFC-0007 ("REST síncrono fica restrito à
-  leitura de cadastros do core").
+  via REST síncrono (`ServiceCatalogClient` → `GET /api/v1/services-catalog/{id}`), a leitura
+  de cadastro do core permitida pela RFC-0007 ("REST síncrono fica restrito à leitura de
+  cadastros do core").
 - A leitura de nome e preço no `ms-ofisy-stock` também é síncrona, decisão tomada na revisão da PR1
-  (a alternativa era trazer o preço no `StockConsumed`). Se o estoque estiver fora do ar, criar ou
-  editar um orçamento com itens novos de estoque responde `503`; os eventos da saga não dependem
-  dessa chamada.
+  (a alternativa era trazer o preço no `StockConsumed`) e registrada no
+  [ADR-0015](https://github.com/15SOAT-FIAP/techchallenge-ofisy/blob/master/docs/adr/0015-ajustar-a-saga-da-os-ao-fluxo-implementado.md),
+  que amplia as leituras síncronas permitidas. Se o estoque estiver fora do ar, criar ou editar um
+  orçamento com itens novos de estoque responde `503`; os eventos da saga não dependem dessa chamada.
