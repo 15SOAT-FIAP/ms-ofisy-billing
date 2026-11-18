@@ -83,24 +83,20 @@ flowchart LR
     nlb --> pod[Pods do billing]
 ```
 
-O webhook não passa por JWT nem pelo authorizer de clientes: a aplicação valida a notificação pelo header `x-signature` com o `MERCADOPAGO_WEBHOOK_SECRET`. Depois do primeiro deploy, altere o `api-gateway/` do `techchallenge-ofisy-eks-infra`:
+O webhook não passa por JWT nem pelo authorizer de clientes: a aplicação valida a notificação pelo header `x-signature` com o `MERCADOPAGO_WEBHOOK_SECRET`. O `api-gateway/` do `techchallenge-ofisy-eks-infra` já tem o serviço em `nlb_service_names` (`billing = "default/ms-ofisy-billing-service"`) e as rotas em `local.service_routes`:
 
-1. em `variables.tf`, inclua o serviço no default de `nlb_service_names`:
-   ```hcl
-   billing = "default/ms-ofisy-billing-service"
-   ```
-2. em `main.tf`, inclua as rotas do billing em `local.service_routes`. Sem elas, as requisições continuam caindo no `ANY /{proxy+}`, que vai para o core:
-   ```hcl
-   "POST /api/v1/webhooks/mercado-pago" = { service = "billing", protected = false }
-   "ANY /api/v1/quotes"                 = { service = "billing", protected = false }
-   "ANY /api/v1/quotes/{proxy+}"        = { service = "billing", protected = false }
-   "PATCH /api/v1/quotes/{id}/approve"  = { service = "billing", protected = true }
-   "PATCH /api/v1/quotes/{id}/reprove"  = { service = "billing", protected = true }
-   "ANY /api/v1/payments"               = { service = "billing", protected = false }
-   ```
-   O webhook e as rotas de equipe ficam com `protected = false`, porque a aplicação valida a assinatura do Mercado Pago e o JWT da equipe. Aprovar e reprovar são rotas do cliente e ficam com `protected = true`, atrás do Lambda Authorizer de CPF/CNPJ. Essas duas rotas são mais específicas que o `{proxy+}`, então o API Gateway dá prioridade a elas;
-3. rode o deploy do API Gateway;
-4. no painel da aplicação do Mercado Pago, configure a URL de notificação como `https://<api-gateway>/api/v1/webhooks/mercado-pago`.
+```hcl
+"ANY /api/v1/quotes"                 = { service = "billing", protected = false }
+"ANY /api/v1/quotes/{proxy+}"        = { service = "billing", protected = false }
+"PATCH /api/v1/quotes/{id}/approve"  = { service = "billing", protected = true }
+"PATCH /api/v1/quotes/{id}/reprove"  = { service = "billing", protected = true }
+"ANY /api/v1/payments"               = { service = "billing", protected = false }
+"POST /api/v1/webhooks/mercado-pago" = { service = "billing", protected = false }
+```
+
+O webhook e as rotas de equipe ficam com `protected = false`, porque a aplicação valida a assinatura do Mercado Pago e o JWT da equipe. Aprovar e reprovar são rotas do cliente e ficam com `protected = true`, atrás do Lambda Authorizer de CPF/CNPJ. Essas duas rotas são mais específicas que o `{proxy+}`, então o API Gateway dá prioridade a elas.
+
+No painel da aplicação do Mercado Pago, configure a URL de notificação como `https://<api-gateway>/api/v1/webhooks/mercado-pago`. A URL do API Gateway muda a cada vez que ele é recriado, então essa configuração precisa ser refeita depois de cada novo ambiente.
 
 Cada vez que o `Service` é recriado (por exemplo, depois do `destroy-app.yml`), o NLB muda e o deploy do API Gateway precisa rodar de novo. Antes de destruir a aplicação sem recriá-la, tire a entrada `billing` de `nlb_service_names`, senão o próximo deploy do Gateway falha ao procurar o NLB.
 
